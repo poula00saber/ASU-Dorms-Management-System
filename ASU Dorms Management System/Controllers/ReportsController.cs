@@ -6,7 +6,7 @@ namespace ASU_Dorms_Management_System.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Registration")]
+    [Authorize]
     public class ReportsController : ControllerBase
     {
         private readonly IReportService _reportService;
@@ -16,17 +16,70 @@ namespace ASU_Dorms_Management_System.Controllers
             _reportService = reportService;
         }
 
-        [HttpGet("meal-absence")]
-        public async Task<IActionResult> GetMealAbsenceReport(
-            [FromQuery] DateTime date,
-            [FromQuery] string buildingNumber = null,
-            [FromQuery] string government = null,
-            [FromQuery] string district = null,
-            [FromQuery] string faculty = null)
-        {
-            var report = await _reportService.GetMealAbsenceReportAsync(
-                date, buildingNumber, government, district, faculty);
+        // ====================================================================
+        // REGISTRATION USER ENDPOINTS
+        // ====================================================================
 
+        /// <summary>
+        /// Get meal absence report for registration users
+        /// Shows students from each building with their missed meals
+        /// </summary>
+        [HttpGet("meal-absence")]
+        [Authorize(Roles = "Registration")]
+            public async Task<IActionResult> GetMealAbsenceReport(
+                [FromQuery] DateTime fromDate,
+                [FromQuery] DateTime toDate,
+                [FromQuery] string buildingNumber = null,
+                [FromQuery] string government = null,
+                [FromQuery] string district = null,
+                [FromQuery] string faculty = null)
+            {
+                var report = await _reportService.GetMealAbsenceReportAsync(
+                    fromDate, toDate, buildingNumber, government, district, faculty);
+
+                return Ok(report);
+            }
+
+        /// <summary>
+        /// Get statistics for all buildings
+        /// </summary>
+        [HttpGet("buildings-statistics")]
+        [Authorize(Roles = "Registration")]
+        public async Task<IActionResult> GetBuildingsStatistics(
+            [FromQuery] DateTime fromDate,
+            [FromQuery] DateTime toDate)
+        {
+            var stats = await _reportService.GetAllBuildingsStatisticsAsync(fromDate, toDate);
+            return Ok(stats);
+        }
+
+        // ====================================================================
+        // RESTAURANT USER ENDPOINTS
+        // ====================================================================
+
+        /// <summary>
+        /// Get today's meal report for restaurant users
+        /// Shows: Total meals, Received meals, Remaining meals
+        /// </summary>
+        [HttpGet("restaurant/today")]
+        [Authorize(Roles = "Restaurant")]
+        public async Task<IActionResult> GetRestaurantTodayReport(
+            [FromQuery] string buildingNumber = null)
+        {
+            var report = await _reportService.GetRestaurantTodayReportAsync(buildingNumber);
+            return Ok(report);
+        }
+
+        /// <summary>
+        /// Get meal report for specific date for restaurant users
+        /// </summary>
+        [HttpGet("restaurant/daily")]
+        [Authorize(Roles = "Restaurant")]
+        public async Task<IActionResult> GetRestaurantDailyReport(
+            [FromQuery] DateTime date,
+            [FromQuery] string buildingNumber = null)
+        {
+            var report = await _reportService.GetRestaurantDailyReportAsync(date, buildingNumber);
             return Ok(report);
         }
     }

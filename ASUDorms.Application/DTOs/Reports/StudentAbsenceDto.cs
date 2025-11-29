@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 namespace ASUDorms.Application.DTOs.Reports
 {
 
+    [Obsolete("Use MealAbsenceReportDto instead")]
     public class StudentAbsenceDto
     {
         public string StudentId { get; set; }

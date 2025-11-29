@@ -9,11 +9,25 @@ namespace ASUDorms.Application.Interfaces
 {
     public interface IReportService
     {
+        // Registration User Reports
         Task<MealAbsenceReportDto> GetMealAbsenceReportAsync(
-            DateTime date,
+            DateTime fromDate,
+            DateTime toDate,
             string buildingNumber = null,
             string government = null,
             string district = null,
             string faculty = null);
+
+        Task<AllBuildingsStatisticsDto> GetAllBuildingsStatisticsAsync(
+            DateTime fromDate,
+            DateTime toDate);
+
+        // Restaurant User Reports
+        Task<RestaurantDailyReportDto> GetRestaurantDailyReportAsync(
+            DateTime date,
+            string buildingNumber = null);
+
+        Task<RestaurantDailyReportDto> GetRestaurantTodayReportAsync(
+            string buildingNumber = null);
     }
 }

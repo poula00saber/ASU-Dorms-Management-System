@@ -8,10 +8,11 @@ namespace ASUDorms.Application.DTOs.Reports
 {
     public class MealAbsenceReportDto
     {
-        public DateTime Date { get; set; }
-        public List<StudentAbsenceDto> Absences { get; set; }
-        public decimal TotalPenalty { get; set; }
-        public int TotalAbsences { get; set; }
+        public DateTime FromDate { get; set; }
+        public DateTime ToDate { get; set; }
+        public string BuildingNumber { get; set; }
+        public List<BuildingAbsenceDto> Buildings { get; set; }
+        public ReportSummaryDto Summary { get; set; }
     }
 
 }
