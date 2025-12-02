@@ -29,5 +29,8 @@ namespace ASUDorms.Application.Interfaces
 
         Task<RestaurantDailyReportDto> GetRestaurantTodayReportAsync(
             string buildingNumber = null);
+        Task<RegistrationDashboardDto> GetRegistrationDashboardStatsAsync(); // New method
+
+
     }
 }

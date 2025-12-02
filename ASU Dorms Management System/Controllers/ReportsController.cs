@@ -40,6 +40,38 @@ namespace ASU_Dorms_Management_System.Controllers
                 return Ok(report);
             }
 
+
+
+
+
+
+
+
+        // deeeeeeeeeeeeep seeeeeeeeeek
+
+        /// <summary>
+        /// Get dashboard statistics for registration user's dorm location
+        /// </summary>
+        [HttpGet("registration/dashboard")]
+        [Authorize(Roles = "Registration")]
+        public async Task<IActionResult> GetRegistrationDashboard()
+        {
+            try
+            {
+                var dashboardStats = await _reportService.GetRegistrationDashboardStatsAsync();
+                return Ok(dashboardStats);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+
+
+
+
+
         /// <summary>
         /// Get statistics for all buildings
         /// </summary>

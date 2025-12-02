@@ -35,7 +35,6 @@ namespace ASUDorms.Infrastructure.Services
                 StudentId = dto.StudentId,
                 StartDate = dto.StartDate,
                 EndDate = dto.EndDate,
-                Reason = dto.Reason
             };
 
             await _unitOfWork.Holidays.AddAsync(holiday);
@@ -70,7 +69,6 @@ namespace ASUDorms.Infrastructure.Services
                 StudentId = holiday.StudentId,
                 StartDate = holiday.StartDate,
                 EndDate = holiday.EndDate,
-                Reason = holiday.Reason
             };
         }
     }
