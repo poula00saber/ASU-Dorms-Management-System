@@ -3,6 +3,8 @@ using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,16 +17,24 @@ namespace ASUDorms.Infrastructure.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthService _authService;
+        private readonly ILogger<StudentService> _logger;
 
-        public StudentService(IUnitOfWork unitOfWork, IAuthService authService)
+        public StudentService(IUnitOfWork unitOfWork, IAuthService authService, ILogger<StudentService> logger)
         {
             _unitOfWork = unitOfWork;
             _authService = authService;
+            _logger = logger;
         }
-
         public async Task<StudentDto> CreateStudentAsync(CreateStudentDto dto)
         {
-            var dormLocationId = _authService.GetCurrentDormLocationId();
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            _logger.LogInformation($"Creating student for dorm location: {dormLocationId}");
 
             // Check if StudentId already exists in this location
             var existingStudent = await _unitOfWork.Students
@@ -58,6 +68,7 @@ namespace ASUDorms.Infrastructure.Services
                 District = dto.District,
                 StreetName = dto.StreetName,
                 Faculty = dto.Faculty,
+                Level = dto.Level,
                 Grade = dto.Grade,
                 DormType = dto.DormType,
                 BuildingNumber = dto.BuildingNumber,
@@ -73,22 +84,44 @@ namespace ASUDorms.Infrastructure.Services
                 GuardianRelationship = dto.GuardianRelationship,
                 GuardianPhone = dto.GuardianPhone,
                 DormLocationId = dormLocationId,
-                PhotoUrl= dto.PhotoUrl
+                PhotoUrl = dto.PhotoUrl
             };
 
             await _unitOfWork.Students.AddAsync(student);
             await _unitOfWork.SaveChangesAsync();
 
+            _logger.LogInformation($"Student {dto.StudentId} created successfully for dorm location {dormLocationId}");
+
             return MapToDto(student);
         }
-
         public async Task<StudentDto> UpdateStudentAsync(string studentId, CreateStudentDto dto)
         {
-            var student = await _unitOfWork.Students.GetByIdAsync(studentId);
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.DormLocationId == dormLocationId);
 
             if (student == null)
             {
                 throw new KeyNotFoundException("Student not found");
+            }
+
+            // Check if NationalId is being changed and if it already exists (excluding current student)
+            if (student.NationalId != dto.NationalId)
+            {
+                var existingNationalId = await _unitOfWork.Students
+                    .FindAsync(s => s.NationalId == dto.NationalId && s.StudentId != studentId);
+
+                if (existingNationalId.Any())
+                {
+                    throw new InvalidOperationException("National ID already exists");
+                }
             }
 
             // Update properties
@@ -103,6 +136,7 @@ namespace ASUDorms.Infrastructure.Services
             student.District = dto.District;
             student.StreetName = dto.StreetName;
             student.Faculty = dto.Faculty;
+            student.Level = dto.Level;
             student.Grade = dto.Grade;
             student.DormType = dto.DormType;
             student.BuildingNumber = dto.BuildingNumber;
@@ -127,7 +161,17 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<StudentDto> GetStudentByIdAsync(string studentId)
         {
-            var student = await _unitOfWork.Students.GetByIdAsync(studentId);
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            var student = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.DormLocationId == dormLocationId);
 
             if (student == null)
             {
@@ -139,21 +183,95 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<List<StudentDto>> GetAllStudentsAsync()
         {
-            var students = await _unitOfWork.Students.GetAllAsync();
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                return new List<StudentDto>();
+            }
+
+            var students = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .Where(s => s.DormLocationId == dormLocationId)
+                .OrderBy(s => s.FirstName)
+                .ThenBy(s => s.LastName)
+                .ToListAsync();
+
+            return students.Select(MapToDto).ToList();
+        }
+
+        public async Task<List<StudentDto>> SearchStudentsAsync(string searchTerm)
+        {
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                return new List<StudentDto>();
+            }
+
+            var students = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .Where(s => s.DormLocationId == dormLocationId &&
+                           (s.StudentId.Contains(searchTerm) ||
+                            s.NationalId.Contains(searchTerm) ||
+                            s.FirstName.Contains(searchTerm) ||
+                            s.LastName.Contains(searchTerm) ||
+                            s.Email.Contains(searchTerm) ||
+                            s.Faculty.Contains(searchTerm)))
+                .OrderBy(s => s.FirstName)
+                .ThenBy(s => s.LastName)
+                .ToListAsync();
+
             return students.Select(MapToDto).ToList();
         }
 
         public async Task DeleteStudentAsync(string studentId)
         {
-            var student = await _unitOfWork.Students.GetByIdAsync(studentId);
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.DormLocationId == dormLocationId);
 
             if (student == null)
             {
                 throw new KeyNotFoundException("Student not found");
             }
 
-            student.IsDeleted = true;
-            _unitOfWork.Students.Update(student);
+            _unitOfWork.Students.Delete(student);
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        public async Task SoftDeleteStudentAsync(string studentId)
+        {
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.DormLocationId == dormLocationId);
+
+            if (student == null)
+            {
+                throw new KeyNotFoundException("Student not found");
+            }
+
+            // If you have an IsDeleted property, use it instead of physical delete
+            // student.IsDeleted = true;
+            // _unitOfWork.Students.Update(student);
+
+            _unitOfWork.Students.Delete(student);
             await _unitOfWork.SaveChangesAsync();
         }
 
@@ -164,12 +282,34 @@ namespace ASUDorms.Infrastructure.Services
                 throw new ArgumentException("Invalid file");
             }
 
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && s.DormLocationId == dormLocationId);
+
+            if (student == null)
+            {
+                throw new KeyNotFoundException("Student not found");
+            }
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
             if (!allowedExtensions.Contains(extension))
             {
-                throw new ArgumentException("Only JPG and PNG files are allowed");
+                throw new ArgumentException("Only JPG, JPEG, PNG and GIF files are allowed");
+            }
+
+            // Validate file size (e.g., 5MB max)
+            if (file.Length > 5 * 1024 * 1024)
+            {
+                throw new ArgumentException("File size cannot exceed 5MB");
             }
 
             var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "photos");
@@ -185,15 +325,53 @@ namespace ASUDorms.Infrastructure.Services
 
             var photoUrl = $"/uploads/photos/{fileName}";
 
-            var student = await _unitOfWork.Students.GetByIdAsync(studentId);
-            if (student != null)
-            {
-                student.PhotoUrl = photoUrl;
-                _unitOfWork.Students.Update(student);
-                await _unitOfWork.SaveChangesAsync();
-            }
+            student.PhotoUrl = photoUrl;
+            _unitOfWork.Students.Update(student);
+            await _unitOfWork.SaveChangesAsync();
 
             return photoUrl;
+        }
+
+        public async Task<List<StudentDto>> GetStudentsByBuildingAsync(string buildingNumber)
+        {
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                return new List<StudentDto>();
+            }
+
+            var students = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .Where(s => s.DormLocationId == dormLocationId &&
+                           s.BuildingNumber == buildingNumber)
+                .OrderBy(s => s.RoomNumber)
+                .ThenBy(s => s.FirstName)
+                .ToListAsync();
+
+            return students.Select(MapToDto).ToList();
+        }
+
+        public async Task<List<StudentDto>> GetStudentsByFacultyAsync(string faculty)
+        {
+            var dormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (dormLocationId == 0)
+            {
+                return new List<StudentDto>();
+            }
+
+            var students = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .Where(s => s.DormLocationId == dormLocationId &&
+                           s.Faculty == faculty)
+                .OrderBy(s => s.Level)
+                .ThenBy(s => s.FirstName)
+                .ToListAsync();
+
+            return students.Select(MapToDto).ToList();
         }
 
         private StudentDto MapToDto(Student student)
@@ -213,6 +391,7 @@ namespace ASUDorms.Infrastructure.Services
                 District = student.District,
                 StreetName = student.StreetName,
                 Faculty = student.Faculty,
+                Level = student.Level,
                 Grade = student.Grade,
                 DormType = student.DormType,
                 BuildingNumber = student.BuildingNumber,
@@ -228,7 +407,6 @@ namespace ASUDorms.Infrastructure.Services
                 GuardianRelationship = student.GuardianRelationship,
                 GuardianPhone = student.GuardianPhone,
                 DormLocationId = student.DormLocationId,
-                
             };
         }
     }

@@ -1,9 +1,11 @@
-﻿using ASUDorms.Application.DTOs.Students;
+﻿
+using ASUDorms.Application.DTOs.Students;
 using ASUDorms.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
-namespace ASU_Dorms_Management_System.Controllers
+namespace ASUDorms.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -11,17 +13,50 @@ namespace ASU_Dorms_Management_System.Controllers
     public class StudentsController : ControllerBase
     {
         private readonly IStudentService _studentService;
+        private readonly ILogger<StudentsController> _logger;
 
-        public StudentsController(IStudentService studentService)
+        public StudentsController(IStudentService studentService, ILogger<StudentsController> logger)
         {
             _studentService = studentService;
+            _logger = logger;
         }
 
-        [HttpGet]
-        public async Task<IActionResult> GetAll()
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] CreateStudentDto dto)
         {
-            var students = await _studentService.GetAllStudentsAsync();
-            return Ok(students);
+            try
+            {
+                // Debug: Log authentication status
+                _logger.LogInformation("========== CREATE STUDENT DEBUG ==========");
+                _logger.LogInformation($"User Authenticated: {User.Identity?.IsAuthenticated}");
+                _logger.LogInformation($"User Name: {User.Identity?.Name}");
+
+                // Log all claims
+                _logger.LogInformation("Claims in request:");
+                foreach (var claim in User.Claims)
+                {
+                    _logger.LogInformation($"  {claim.Type} = {claim.Value}");
+                }
+                _logger.LogInformation("==========================================");
+
+                var student = await _studentService.CreateStudentAsync(dto);
+                return CreatedAtAction(nameof(GetById), new { id = student.StudentId }, student);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogError($"❌ Unauthorized: {ex.Message}");
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError($"❌ Invalid Operation: {ex.Message}");
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error creating student");
+                return StatusCode(500, new { message = "An error occurred", details = ex.Message });
+            }
         }
 
         [HttpGet("{id}")]
@@ -36,19 +71,28 @@ namespace ASU_Dorms_Management_System.Controllers
             {
                 return NotFound(new { message = ex.Message });
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateStudentDto dto)
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
         {
             try
             {
-                var student = await _studentService.CreateStudentAsync(dto);
-                return CreatedAtAction(nameof(GetById), new { id = student.StudentId }, student);
+                _logger.LogInformation("Getting all students...");
+                _logger.LogInformation($"User authenticated: {User.Identity?.IsAuthenticated}");
+
+                var students = await _studentService.GetAllStudentsAsync();
+                _logger.LogInformation($"Returned {students.Count} students");
+                return Ok(students);
             }
-            catch (InvalidOperationException ex)
+            catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Error getting students");
+                return StatusCode(500, new { message = ex.Message });
             }
         }
 
@@ -64,6 +108,14 @@ namespace ASU_Dorms_Management_System.Controllers
             {
                 return NotFound(new { message = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
         }
 
         [HttpDelete("{id}")]
@@ -78,6 +130,10 @@ namespace ASU_Dorms_Management_System.Controllers
             {
                 return NotFound(new { message = ex.Message });
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
         }
 
         [HttpPost("{id}/photo")]
@@ -91,6 +147,14 @@ namespace ASU_Dorms_Management_System.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
             }
         }
     }

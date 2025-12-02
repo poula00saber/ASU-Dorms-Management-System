@@ -34,7 +34,7 @@ namespace ASUDorms.Infrastructure.Services
             string district = null,
             string faculty = null)
         {
-            var dormLocationId = _authService.GetCurrentDormLocationId();
+            var dormLocationId =await _authService.GetCurrentDormLocationIdAsync();
 
             // Get all students with filters
             var studentsQuery = _unitOfWork.Students.Query()
