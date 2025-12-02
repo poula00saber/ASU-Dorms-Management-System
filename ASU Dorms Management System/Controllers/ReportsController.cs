@@ -24,33 +24,6 @@ namespace ASU_Dorms_Management_System.Controllers
         /// Get meal absence report for registration users
         /// Shows students from each building with their missed meals
         /// </summary>
-        /// 
-
-
-        // deeeeeeeeeeeeep seeeeeeeeeek
-
-        /// <summary>
-        /// Get dashboard statistics for registration user's dorm location
-        /// </summary>
-        [HttpGet("registration/dashboard")]
-        [Authorize(Roles = "Registration")]
-        public async Task<IActionResult> GetRegistrationDashboard()
-        {
-            try
-            {
-                var dashboardStats = await _reportService.GetRegistrationDashboardStatsAsync();
-                return Ok(dashboardStats);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
-        }
-
-
-
-
-
         [HttpGet("meal-absence")]
         [Authorize(Roles = "Registration")]
             public async Task<IActionResult> GetMealAbsenceReport(
@@ -109,13 +82,5 @@ namespace ASU_Dorms_Management_System.Controllers
             var report = await _reportService.GetRestaurantDailyReportAsync(date, buildingNumber);
             return Ok(report);
         }
-
-
-
-
-
-
-
     }
-
 }

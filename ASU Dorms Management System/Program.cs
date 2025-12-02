@@ -5,8 +5,6 @@ using ASUDorms.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
-//builder.WebHost.UseUrls("http://0.0.0.0:5065");
-
 
 // Add services using extension methods
 builder.Services.AddControllers();

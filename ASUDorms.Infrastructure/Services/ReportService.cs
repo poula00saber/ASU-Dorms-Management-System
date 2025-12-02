@@ -26,168 +26,6 @@ namespace ASUDorms.Infrastructure.Services
         // REGISTRATION USER REPORTS
         // ====================================================================
 
-        // deeeeeeeeeep seeeeeeek
-
-        public async Task<RegistrationDashboardDto> GetRegistrationDashboardStatsAsync()
-        {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
-            var currentDate = DateTime.UtcNow.Date;
-
-            // Get all students in this dorm location
-            var students = await _unitOfWork.Students
-                .Query()
-                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
-                .ToListAsync();
-
-            // Get today's holidays
-            var todayHolidays = await _unitOfWork.Holidays
-                .Query()
-                .Where(h => h.StartDate.Date <= currentDate && h.EndDate.Date >= currentDate)
-                .ToListAsync();
-
-            // Get today's meal transactions
-            var todayMealTransactions = await _unitOfWork.MealTransactions
-                .Query()
-                .Where(m => m.Date.Date == currentDate && m.DormLocationId == dormLocationId)
-                .Include(m => m.MealType)
-                .ToListAsync();
-
-            // Calculate statistics
-            var totalStudents = students.Count;
-            var activeStudents = students.Count(s=>s.IsDeleted == false);
-            var onLeaveStudents = todayHolidays
-                .Select(h => h.StudentId)
-                .Distinct()
-                .Count();
-
-            // Calculate meal statistics
-            var breakfastDinnerReceived = todayMealTransactions
-                .Count(m => m.MealType.Name == "BreakfastDinner");
-            var lunchReceived = todayMealTransactions
-                .Count(m => m.MealType.Name == "Lunch");
-
-            var studentsNotOnHoliday = totalStudents - onLeaveStudents;
-            var expectedBreakfastDinner = studentsNotOnHoliday;
-            var expectedLunch = studentsNotOnHoliday;
-
-            var breakfastDinnerRemaining = expectedBreakfastDinner - breakfastDinnerReceived;
-            var lunchRemaining = expectedLunch - lunchReceived;
-
-            var overallAttendancePercentage = (expectedBreakfastDinner + expectedLunch) > 0
-                ? ((breakfastDinnerReceived + lunchReceived) * 100.0m / (expectedBreakfastDinner + expectedLunch))
-                : 0;
-
-            // Group by building
-            var buildingStats = students
-                .GroupBy(s => s.BuildingNumber)
-                .Select(g =>
-                {
-                    var buildingStudents = g.ToList();
-                    var buildingStudentIds = buildingStudents.Select(s => s.StudentId).ToList();
-
-                    var buildingOnLeave = todayHolidays
-                        .Count(h => buildingStudentIds.Contains(h.StudentId));
-
-                    var buildingActive = buildingStudents.Count(s => s.IsDeleted == false);
-                    var buildingNotOnHoliday = buildingStudents.Count - buildingOnLeave;
-
-                    var buildingBreakfastDinner = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentId) && m.MealType.Name == "BreakfastDinner");
-
-                    var buildingLunch = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentId) && m.MealType.Name == "Lunch");
-
-                    var buildingTotalReceived = buildingBreakfastDinner + buildingLunch;
-                    var buildingTotalExpected = buildingNotOnHoliday * 2; // BreakfastDinner + Lunch
-                    var buildingAttendance = buildingTotalExpected > 0
-                        ? (buildingTotalReceived * 100.0m / buildingTotalExpected)
-                        : 0;
-
-                    return new DashboardBuildingStatsDto
-                    {
-                        BuildingNumber = g.Key ?? "غير محدد",
-                        TotalStudents = buildingStudents.Count,
-                        ActiveStudents = buildingActive,
-                        OnLeaveStudents = buildingOnLeave,
-                        ExpectedMeals = buildingTotalExpected,
-                        ReceivedMeals = buildingTotalReceived,
-                        RemainingMeals = buildingTotalExpected - buildingTotalReceived,
-                        AttendancePercentage = buildingAttendance
-                    };
-                })
-                .OrderBy(b => b.BuildingNumber)
-                .ToList();
-
-            // Get recent registrations (last 5)
-            var recentRegistrations = await _unitOfWork.Students
-                .Query()
-                .Where(s => s.DormLocationId == dormLocationId)
-                .OrderByDescending(s => s.CreatedAt)
-                .Take(5)
-                .Select(s => new RecentRegistrationDto
-                {
-                    StudentId = s.StudentId,
-                    Name = s.FirstName + " " + s.LastName,
-                    Faculty = s.Faculty ?? "غير محدد",
-                    BuildingNumber = s.BuildingNumber ?? "غير محدد",
-                    Time = s.CreatedAt.ToString("hh:mm tt")
-                })
-                .ToListAsync();
-
-            // Get recent leave requests (last 5)
-            var recentLeaveRequests = await _unitOfWork.Holidays
-                .Query()
-                .Include(h => h.Student)
-                .Where(h => h.Student.DormLocationId == dormLocationId &&
-                           h.StartDate.Date >= currentDate.AddDays(-7))
-                .OrderByDescending(h => h.CreatedAt)
-                .Take(5)
-                .Select(h => new RecentLeaveRequestDto
-                {
-                    StudentId = h.Student.StudentId,
-                    Name = h.Student.FirstName + " " + h.Student.LastName,
-                    BuildingNumber = h.Student.BuildingNumber ?? "غير محدد",
-                    LeaveDate = h.StartDate.ToString("yyyy-MM-dd"),
-                    ReturnDate = h.EndDate.ToString("yyyy-MM-dd")
-                })
-                .ToListAsync();
-
-            return new RegistrationDashboardDto
-            {
-                Date = currentDate.ToString("yyyy-MM-dd"),
-                DormLocationId = dormLocationId,
-                TotalStudents = totalStudents,
-                ActiveStudents = activeStudents,
-                OnLeaveStudents = onLeaveStudents,
-                ExpectedMeals = new DashboardMealStatsDto
-                {
-                    BreakfastDinner = expectedBreakfastDinner,
-                    Lunch = expectedLunch,
-                    Total = expectedBreakfastDinner + expectedLunch
-                },
-                ReceivedMeals = new DashboardMealStatsDto
-                {
-                    BreakfastDinner = breakfastDinnerReceived,
-                    Lunch = lunchReceived,
-                    Total = breakfastDinnerReceived + lunchReceived
-                },
-                RemainingMeals = new DashboardMealStatsDto
-                {
-                    BreakfastDinner = breakfastDinnerRemaining,
-                    Lunch = lunchRemaining,
-                    Total = breakfastDinnerRemaining + lunchRemaining
-                },
-                AttendancePercentage = overallAttendancePercentage,
-                BuildingStats = buildingStats,
-                RecentRegistrations = recentRegistrations,
-                RecentLeaveRequests = recentLeaveRequests
-            };
-        }
-
-
-
-
-
         public async Task<MealAbsenceReportDto> GetMealAbsenceReportAsync(
             DateTime fromDate,
             DateTime toDate,
@@ -416,7 +254,6 @@ namespace ASUDorms.Infrastructure.Services
         // RESTAURANT USER REPORTS
         // ====================================================================
 
-
         public async Task<RestaurantDailyReportDto> GetRestaurantTodayReportAsync(
             string buildingNumber = null)
         {
@@ -427,93 +264,97 @@ namespace ASUDorms.Infrastructure.Services
             DateTime date,
             string buildingNumber = null)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = _authService.GetCurrentDormLocationId();
 
-            // Get all students in the dorm location
+            // Get students (filtered by building if specified)
             var studentsQuery = _unitOfWork.Students.Query()
                 .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted);
 
-            // Filter by building if specified
             if (!string.IsNullOrEmpty(buildingNumber))
                 studentsQuery = studentsQuery.Where(s => s.BuildingNumber == buildingNumber);
 
             var students = await studentsQuery.ToListAsync();
             var totalStudents = students.Count;
 
-            // Get students on holiday on this specific date
+            // Get today's meal transactions
+            var mealTransactions = await _unitOfWork.MealTransactions
+                .Query()
+                .Where(m => m.Date.Date == date.Date && m.DormLocationId == dormLocationId)
+                .Include(m => m.MealType)
+                .ToListAsync();
+
+            // Filter by building if specified
+            if (!string.IsNullOrEmpty(buildingNumber))
+            {
+                var studentIds = students.Select(s => s.StudentId).ToList();
+                mealTransactions = mealTransactions
+                    .Where(m => studentIds.Contains(m.StudentId))
+                    .ToList();
+            }
+
+            // Get students on holiday today
             var holidays = await _unitOfWork.Holidays
                 .Query()
                 .Where(h => h.StartDate.Date <= date.Date && h.EndDate.Date >= date.Date)
                 .ToListAsync();
 
-            var studentIdsOnHoliday = holidays.Select(h => h.StudentId).Distinct().ToList();
+            var studentsOnHoliday = holidays.Select(h => h.StudentId).Distinct().ToList();
+            var availableStudents = totalStudents - studentsOnHoliday.Count;
 
-            // Calculate students NOT on holiday (these are the ones who should eat)
-            var studentsNotOnHoliday = totalStudents - studentIdsOnHoliday.Count;
-
-            // Get meal transactions for this date
-            var studentIds = students.Select(s => s.StudentId).ToList();
-            var mealTransactions = await _unitOfWork.MealTransactions
-                .Query()
-                .Where(m => m.Date.Date == date.Date &&
-                            m.DormLocationId == dormLocationId &&
-                            studentIds.Contains(m.StudentId))
-                .Include(m => m.MealType)
-                .ToListAsync();
-
-            // Calculate BreakfastDinner stats
-            var breakfastDinnerReceived = mealTransactions
+            // Calculate breakfast stats (BreakfastDinner)
+            var breakfastReceived = mealTransactions
                 .Count(m => m.MealType.Name == "BreakfastDinner");
-            var breakfastDinnerRemaining = studentsNotOnHoliday - breakfastDinnerReceived;
+            var breakfastRemaining = availableStudents - breakfastReceived;
 
-            // Calculate Lunch stats
+            // Calculate lunch stats
             var lunchReceived = mealTransactions
                 .Count(m => m.MealType.Name == "Lunch");
-            var lunchRemaining = studentsNotOnHoliday - lunchReceived;
+            var lunchRemaining = availableStudents - lunchReceived;
 
-            // Total meals expected = students not on holiday × 2 meal times (BreakfastDinner + Lunch)
-            var totalMealsExpected = studentsNotOnHoliday * 2;
-            var totalMealsReceived = breakfastDinnerReceived + lunchReceived;
-            var totalMealsRemaining = breakfastDinnerRemaining + lunchRemaining;
+            // Dinner is same as breakfast (BreakfastDinner)
+            var dinnerReceived = breakfastReceived;
+            var dinnerRemaining = breakfastRemaining;
 
             var report = new RestaurantDailyReportDto
             {
                 Date = date,
                 BuildingNumber = buildingNumber,
-
-                BreakfastDinnerStats = new MealTypeStatsDto
+                BreakfastStats = new MealTypeStatsDto
                 {
-                    MealType = "Breakfast & Dinner",
-                    TotalMeals = studentsNotOnHoliday,
-                    ReceivedMeals = breakfastDinnerReceived,
-                    RemainingMeals = breakfastDinnerRemaining,
-                    AttendancePercentage = studentsNotOnHoliday > 0
-                        ? (decimal)breakfastDinnerReceived / studentsNotOnHoliday * 100
-                        : 0
+                    MealType = "Breakfast",
+                    TotalStudents = availableStudents,
+                    ReceivedMeals = breakfastReceived,
+                    RemainingMeals = breakfastRemaining,
+                    AttendancePercentage = availableStudents > 0 ?
+                        (decimal)breakfastReceived / availableStudents * 100 : 0
                 },
-
                 LunchStats = new MealTypeStatsDto
                 {
                     MealType = "Lunch",
-                    TotalMeals = studentsNotOnHoliday,
+                    TotalStudents = availableStudents,
                     ReceivedMeals = lunchReceived,
                     RemainingMeals = lunchRemaining,
-                    AttendancePercentage = studentsNotOnHoliday > 0
-                        ? (decimal)lunchReceived / studentsNotOnHoliday * 100
-                        : 0
+                    AttendancePercentage = availableStudents > 0 ?
+                        (decimal)lunchReceived / availableStudents * 100 : 0
                 },
-
+                DinnerStats = new MealTypeStatsDto
+                {
+                    MealType = "Dinner",
+                    TotalStudents = availableStudents,
+                    ReceivedMeals = dinnerReceived,
+                    RemainingMeals = dinnerRemaining,
+                    AttendancePercentage = availableStudents > 0 ?
+                        (decimal)dinnerReceived / availableStudents * 100 : 0
+                },
                 Summary = new DailySummaryDto
                 {
                     TotalStudentsInBuilding = totalStudents,
-                    StudentsNotOnHoliday = studentsNotOnHoliday,
-                    StudentsOnHoliday = studentIdsOnHoliday.Count,
-                    TotalMealsExpected = totalMealsExpected,
-                    TotalMealsReceived = totalMealsReceived,
-                    TotalMealsRemaining = totalMealsRemaining,
-                    OverallAttendancePercentage = totalMealsExpected > 0
-                        ? (decimal)totalMealsReceived / totalMealsExpected * 100
-                        : 0
+                    TotalMealsExpected = availableStudents * 3, // 3 meals per day
+                    TotalMealsReceived = breakfastReceived + lunchReceived + dinnerReceived,
+                    TotalMealsRemaining = breakfastRemaining + lunchRemaining + dinnerRemaining,
+                    OverallAttendancePercentage = availableStudents > 0 ?
+                        (decimal)(breakfastReceived + lunchReceived + dinnerReceived) /
+                        (availableStudents * 3) * 100 : 0
                 }
             };
 

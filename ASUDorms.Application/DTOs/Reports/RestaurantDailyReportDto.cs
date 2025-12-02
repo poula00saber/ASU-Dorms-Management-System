@@ -10,13 +10,9 @@ namespace ASUDorms.Application.DTOs.Reports
     {
         public DateTime Date { get; set; }
         public string BuildingNumber { get; set; }
-
-        // Breakfast & Dinner (served together)
-        public MealTypeStatsDto BreakfastDinnerStats { get; set; }
-
-        // Lunch (served separately)
+        public MealTypeStatsDto BreakfastStats { get; set; }
         public MealTypeStatsDto LunchStats { get; set; }
-
+        public MealTypeStatsDto DinnerStats { get; set; }
         public DailySummaryDto Summary { get; set; }
     }
 }
