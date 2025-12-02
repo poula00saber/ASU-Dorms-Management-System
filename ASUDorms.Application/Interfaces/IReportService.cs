@@ -17,6 +17,8 @@ namespace ASUDorms.Application.Interfaces
             string government = null,
             string district = null,
             string faculty = null);
+        Task<RegistrationDashboardDto> GetRegistrationDashboardStatsAsync(); // New method
+
 
         Task<AllBuildingsStatisticsDto> GetAllBuildingsStatisticsAsync(
             DateTime fromDate,

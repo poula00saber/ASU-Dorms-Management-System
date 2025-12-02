@@ -5,7 +5,6 @@ using ASUDorms.Domain.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ASUDorms.Infrastructure.Services
@@ -34,8 +33,7 @@ namespace ASUDorms.Infrastructure.Services
             {
                 StudentId = dto.StudentId,
                 StartDate = dto.StartDate,
-                EndDate = dto.EndDate,
-                Reason = dto.Reason
+                EndDate = dto.EndDate
             };
 
             await _unitOfWork.Holidays.AddAsync(holiday);
@@ -69,8 +67,7 @@ namespace ASUDorms.Infrastructure.Services
                 Id = holiday.Id,
                 StudentId = holiday.StudentId,
                 StartDate = holiday.StartDate,
-                EndDate = holiday.EndDate,
-                Reason = holiday.Reason
+                EndDate = holiday.EndDate
             };
         }
     }
