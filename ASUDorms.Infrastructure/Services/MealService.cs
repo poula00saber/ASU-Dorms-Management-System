@@ -144,7 +144,7 @@ namespace ASUDorms.Infrastructure.Services
                 var morningStart = new TimeSpan(7, 0, 0);   // 7:00 AM
                 var morningEnd = new TimeSpan(10, 0, 0);    // 10:00 AM
                 var eveningStart = new TimeSpan(18, 0, 0);  // 6:00 PM
-                var eveningEnd = new TimeSpan(23, 59, 0);    // 9:00 PM
+                var eveningEnd = new TimeSpan(21, 0, 0);    // 9:00 PM
 
                 return (currentTime >= morningStart && currentTime <= morningEnd) ||
                        (currentTime >= eveningStart && currentTime <= eveningEnd);
@@ -154,7 +154,7 @@ namespace ASUDorms.Infrastructure.Services
             if (mealTypeId == 2)
             {
                 var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
-                var endTime = new TimeSpan(23, 59, 0);    // 9:00 PM
+                var endTime = new TimeSpan(21, 0, 0);    // 9:00 PM
                 return currentTime >= startTime && currentTime <= endTime;
             }
 
