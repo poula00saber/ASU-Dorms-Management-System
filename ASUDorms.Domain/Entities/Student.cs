@@ -17,7 +17,7 @@ namespace ASUDorms.Domain.Entities
 
         // Personal Information
         [Required]
-        [MaxLength(14)]
+        [MaxLength(25)]
         public string NationalId { get; set; }
 
         [Required]

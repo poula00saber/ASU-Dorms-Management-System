@@ -24,8 +24,6 @@ namespace ASUDorms.Domain.Entities
         [Required]
         public DateTime EndDate { get; set; }
 
-        [MaxLength(500)]
-        public string Reason { get; set; }
 
         // Navigation Properties
         public virtual Student Student { get; set; }

@@ -10,8 +10,7 @@ namespace ASUDorms.Application.DTOs.Meals
     public class MealScanRequestDto
     {
         [Required]
-        public string StudentId { get; set; }
-
+        public string NationalId { get; set; }
         [Required]
         public int MealTypeId { get; set; }
     }

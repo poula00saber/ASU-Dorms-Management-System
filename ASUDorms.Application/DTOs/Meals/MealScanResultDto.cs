@@ -11,6 +11,6 @@ namespace ASUDorms.Application.DTOs.Meals
     {
         public bool Success { get; set; }
         public string Message { get; set; }
-        public StudentDto Student { get; set; }
+        public StudentScanDto Student { get; set; }
     }
 }

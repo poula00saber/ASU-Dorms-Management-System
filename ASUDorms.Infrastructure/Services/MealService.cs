@@ -4,9 +4,7 @@ using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ASUDorms.Infrastructure.Services
@@ -15,109 +13,124 @@ namespace ASUDorms.Infrastructure.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthService _authService;
-        private readonly IStudentService _studentService;
 
-        public MealService(
-            IUnitOfWork unitOfWork,
-            IAuthService authService,
-            IStudentService studentService)
+        public MealService(IUnitOfWork unitOfWork, IAuthService authService)
         {
             _unitOfWork = unitOfWork;
             _authService = authService;
-            _studentService = studentService;
         }
 
         public async Task<MealScanResultDto> ScanMealAsync(MealScanRequestDto request)
         {
-            var dormLocationId = _authService.GetCurrentDormLocationId();
-            var currentUser = await _authService.GetCurrentUserAsync();
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            Console.WriteLine(dormLocationId);
+            var today = DateTime.Today;
 
-            // 1. Check if student exists and belongs to same location
-            var student = await _unitOfWork.Students.GetByIdAsync(request.StudentId);
+            // 1. Find student by national ID
+            var student = await _unitOfWork.Students.Query()
+                .Where(s => s.NationalId == request.NationalId)
+                .FirstOrDefaultAsync();
+
+
+
+            Console.WriteLine("============================================================");
+            Console.WriteLine("Received NationalId: " + request.NationalId);
+            Console.WriteLine("============================================================");
+
 
             if (student == null)
             {
                 return new MealScanResultDto
                 {
                     Success = false,
-                    Message = "Student not found"
+                    Message = "لم يتم العثور على الطالب"
                 };
             }
 
+            // 2. Check if student is deleted
+            if (student.IsDeleted)
+            {
+                return new MealScanResultDto
+                {
+                    Success = false,
+                    Message = "حساب الطالب غير نشط",
+                    Student = MapToStudentDto(student)
+                };
+            }
+
+            // 3. Check if student belongs to same dorm location
             if (student.DormLocationId != dormLocationId)
             {
                 return new MealScanResultDto
                 {
                     Success = false,
-                    Message = "Student does not belong to this dorm location"
+                    Message = "الطالب لا ينتمي لهذا السكن",
+                    Student = MapToStudentDto(student)
                 };
             }
 
-            // 2. Check if time is valid for this meal type
+            // 4. Check if time is valid for this meal type
             if (!await IsTimeValidForMealTypeAsync(request.MealTypeId))
             {
                 return new MealScanResultDto
                 {
                     Success = false,
-                    Message = "This meal type is not available at this time"
+                    Message = "خارج أوقات الوجبة",
+                    Student = MapToStudentDto(student)
                 };
             }
 
-            // 3. Check if student is on holiday today
-            var today = DateTime.Today;
-            var holidays = await _unitOfWork.Holidays.FindAsync(h =>
-                h.StudentId == request.StudentId &&
-                h.StartDate.Date <= today &&
-                h.EndDate.Date >= today);
+            // 5. Check if student is on holiday today
+            var isOnHoliday = await _unitOfWork.Holidays.Query()
+                .AnyAsync(h => h.StudentId == student.StudentId &&
+                              h.StartDate.Date <= today &&
+                              h.EndDate.Date >= today);
 
-            if (holidays.Any())
+            if (isOnHoliday)
             {
                 return new MealScanResultDto
                 {
                     Success = false,
-                    Message = "Student is currently on holiday"
+                    Message = "الطالب في إجازة",
+                    Student = MapToStudentDto(student)
                 };
             }
 
-            // 4. Check if student already received this meal today
-            var existingMeal = await _unitOfWork.MealTransactions
-                .Query()
-                .AnyAsync(m =>
-                    m.StudentId == request.StudentId &&
-                    m.MealTypeId == request.MealTypeId &&
-                    m.Date.Date == today);
+            // 6. Check if student already received this meal today
+            var alreadyAte = await _unitOfWork.MealTransactions.Query()
+                .AnyAsync(mt => mt.StudentId == student.StudentId &&
+                               mt.MealTypeId == request.MealTypeId &&
+                               mt.Date.Date == today);
 
-            if (existingMeal)
+            if (alreadyAte)
             {
                 return new MealScanResultDto
                 {
                     Success = false,
-                    Message = "Student already received this meal today"
+                    Message = "تم تناول هذه الوجبة بالفعل اليوم",
+                    Student = MapToStudentDto(student)
                 };
             }
-
-            // 5. Record the meal transaction
+            
+            // 7. Create meal transaction
             var mealTransaction = new MealTransaction
             {
-                StudentId = request.StudentId,
+                StudentId = student.StudentId,
                 MealTypeId = request.MealTypeId,
-                Date = DateTime.UtcNow,
-                Time = DateTime.UtcNow.TimeOfDay,
+                Date = DateTime.Now,
                 DormLocationId = dormLocationId,
-                ScannedByUserId = currentUser.Id
+                ScannedByUserId = dormLocationId
             };
 
             await _unitOfWork.MealTransactions.AddAsync(mealTransaction);
             await _unitOfWork.SaveChangesAsync();
 
-            // 6. Return success with student details
-            var studentDto = await _studentService.GetStudentByIdAsync(request.StudentId);
-
+            // 8. Return success
             return new MealScanResultDto
             {
                 Success = true,
-                Message = "Meal recorded successfully",
-                Student = studentDto
+                Message = "تم مسح الوجبة بنجاح",
+                Student = MapToStudentDto(student)
             };
         }
 
@@ -125,23 +138,40 @@ namespace ASUDorms.Infrastructure.Services
         {
             var currentTime = DateTime.Now.TimeOfDay;
 
-            // MealTypeId 1: Breakfast+Dinner (6:00 PM - 9:00 PM)
+            // MealTypeId 1: Breakfast+Dinner (7:00 AM - 10:00 AM OR 6:00 PM - 9:00 PM)
             if (mealTypeId == 1)
             {
-                var startTime = new TimeSpan(18, 0, 0); // 6:00 PM
-                var endTime = new TimeSpan(21, 0, 0);   // 9:00 PM
-                return currentTime >= startTime && currentTime <= endTime;
+                var morningStart = new TimeSpan(7, 0, 0);   // 7:00 AM
+                var morningEnd = new TimeSpan(10, 0, 0);    // 10:00 AM
+                var eveningStart = new TimeSpan(18, 0, 0);  // 6:00 PM
+                var eveningEnd = new TimeSpan(23, 59, 0);    // 9:00 PM
+
+                return (currentTime >= morningStart && currentTime <= morningEnd) ||
+                       (currentTime >= eveningStart && currentTime <= eveningEnd);
             }
 
             // MealTypeId 2: Lunch (1:00 PM - 9:00 PM)
             if (mealTypeId == 2)
             {
-                var startTime = new TimeSpan(13, 0, 0); // 1:00 PM
-                var endTime = new TimeSpan(21, 0, 0);   // 9:00 PM
+                var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
+                var endTime = new TimeSpan(23, 59, 0);    // 9:00 PM
                 return currentTime >= startTime && currentTime <= endTime;
             }
 
             return false;
+        }
+
+        private StudentScanDto MapToStudentDto(Student student)
+        {
+            return new StudentScanDto
+            {
+                StudentId = student.StudentId,
+                FirstName = student.FirstName,
+                LastName = student.LastName,
+                BuildingNumber = student.BuildingNumber,
+                PhotoUrl = student.PhotoUrl,
+                timeScanned = DateTime.Now
+            };
         }
     }
 }
