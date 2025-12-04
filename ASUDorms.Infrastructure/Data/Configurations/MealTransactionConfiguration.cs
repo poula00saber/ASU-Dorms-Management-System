@@ -15,7 +15,7 @@ namespace ASUDorms.Infrastructure.Data.Configurations
         {
             builder.HasOne(m => m.Student)
                 .WithMany(s => s.MealTransactions)
-                .HasForeignKey(m => m.StudentId)
+                .HasForeignKey(m => m.StudentNationalId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.HasOne(m => m.MealType)

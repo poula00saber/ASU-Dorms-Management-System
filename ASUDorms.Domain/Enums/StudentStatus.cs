@@ -22,13 +22,20 @@ namespace ASUDorms.Domain.Enums
     public enum DormType
     {
         Regular = 1,
-        Premium = 2
+        Premium = 2,
+        Hotel=3,
     }
 
     public enum UserRole
     {
         Registration = 1,
         Restaurant = 2
+    }
+    public enum PaymentType
+    {
+        MonthlyFee = 1,      // رسوم شهرية
+        MissedMealPenalty = 2, // غرامة وجبات فائتة
+        Other = 3
     }
 }
 

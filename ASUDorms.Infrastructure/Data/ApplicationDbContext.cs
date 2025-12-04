@@ -59,7 +59,7 @@ namespace ASUDorms.Infrastructure.Data
                 .HasIndex(s => s.NationalId);
 
             modelBuilder.Entity<MealTransaction>()
-                .HasIndex(m => new { m.StudentId, m.Date, m.MealTypeId });
+                .HasIndex(m => new { m.StudentNationalId, m.Date, m.MealTypeId });
         }
 
         private int GetCurrentDormLocationId()

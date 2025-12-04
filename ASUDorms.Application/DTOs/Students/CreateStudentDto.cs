@@ -16,6 +16,8 @@ namespace ASUDorms.Application.DTOs.Students
         [Required]
         public string NationalId { get; set; }
 
+        public bool IsEgyptian { get; set; } = true;
+
         [Required]
         public string FirstName { get; set; }
 
@@ -45,10 +47,22 @@ namespace ASUDorms.Application.DTOs.Students
 
         [Required]
         public string Faculty { get; set; }
+
         [Required]
         public int Level { get; set; }
+
         [Required]
         public string Grade { get; set; }
+
+        [Range(0, 100)]
+        public decimal? PercentageGrade { get; set; }
+
+        // Secondary School Info (Required for New Students)
+        public string SecondarySchoolName { get; set; }
+        public string SecondarySchoolGovernment { get; set; }
+
+        [Range(0, 100)]
+        public decimal? HighSchoolPercentage { get; set; }
 
         [Required]
         public DormType DormType { get; set; }
@@ -84,6 +98,6 @@ namespace ASUDorms.Application.DTOs.Students
         public string GuardianPhone { get; set; }
 
         public string PhotoUrl { get; set; }
-
     }
+
 }

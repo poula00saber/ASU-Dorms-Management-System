@@ -3,22 +3,27 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ASUDorms.Domain.Entities
 {
     public class Student : BaseEntity
     {
+        [Required]
+        [MaxLength(25)]
         [Key]
+        public string NationalId { get; set; } // Can be passport number for foreigners
+
+
+        [ForeignKey(nameof(DormLocation))]
+        public int DormLocationId { get; set; }
+
+        [Required]
         [MaxLength(20)]
         public string StudentId { get; set; }
 
         // Personal Information
-        [Required]
-        [MaxLength(25)]
-        public string NationalId { get; set; }
+        
+        public bool IsEgyptian { get; set; } = true;
 
         [Required]
         [MaxLength(100)]
@@ -69,7 +74,20 @@ namespace ASUDorms.Domain.Entities
 
         [Required]
         [MaxLength(20)]
-        public string Grade { get; set; }
+        public string Grade { get; set; } // University grade (e.g., "جيد", "جيد جدا")
+
+        [Range(0, 100)]
+        public decimal? PercentageGrade { get; set; } // Percentage (e.g., 85.5%)
+
+        // Secondary School Information (for New Students only)
+        [MaxLength(200)]
+        public string? SecondarySchoolName { get; set; }
+
+        [MaxLength(50)]
+        public string? SecondarySchoolGovernment { get; set; }
+
+        [Range(0, 100)]
+        public decimal? HighSchoolPercentage { get; set; }
 
         // Dorm Information
         [Required]
@@ -83,10 +101,6 @@ namespace ASUDorms.Domain.Entities
         [MaxLength(10)]
         public string RoomNumber { get; set; }
 
-        [Required]
-        [ForeignKey(nameof(DormLocation))]
-        public int DormLocationId { get; set; }
-
         // Special Needs & Fees
         public bool HasSpecialNeeds { get; set; } = false;
 
@@ -94,6 +108,15 @@ namespace ASUDorms.Domain.Entities
         public string? SpecialNeedsDetails { get; set; }
 
         public bool IsExemptFromFees { get; set; } = false;
+
+        // Meal Tracking
+        public int MissedMealsCount { get; set; } = 0;
+
+        // Payment Information
+        public bool HasOutstandingPayment { get; set; } = false;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal OutstandingAmount { get; set; } = 0;
 
         // Family Information
         [Required]
@@ -127,5 +150,7 @@ namespace ASUDorms.Domain.Entities
         public virtual DormLocation DormLocation { get; set; }
         public virtual ICollection<Holiday> Holidays { get; set; }
         public virtual ICollection<MealTransaction> MealTransactions { get; set; }
+        public virtual ICollection<PaymentExemption> PaymentExemptions { get; set; }
+        public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; }
     }
 }

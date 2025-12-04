@@ -24,7 +24,7 @@ namespace ASUDorms.Infrastructure.Services
         public async Task<HolidayDto> CreateHolidayAsync(CreateHolidayDto dto)
         {
             // Verify student exists and belongs to current location
-            var student = await _unitOfWork.Students.GetByIdAsync(dto.StudentId);
+            var student = await _unitOfWork.Students.GetByIdAsync(dto.StudentNationalId);
             if (student == null)
             {
                 throw new KeyNotFoundException("Student not found");
@@ -32,7 +32,7 @@ namespace ASUDorms.Infrastructure.Services
 
             var holiday = new Holiday
             {
-                StudentId = dto.StudentId,
+                StudentNationalId = dto.StudentNationalId,
                 StartDate = dto.StartDate,
                 EndDate = dto.EndDate,
             };
@@ -45,7 +45,7 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<List<HolidayDto>> GetHolidaysByStudentAsync(string studentId)
         {
-            var holidays = await _unitOfWork.Holidays.FindAsync(h => h.StudentId == studentId);
+            var holidays = await _unitOfWork.Holidays.FindAsync(h => h.StudentNationalId == studentId);
             return holidays.Select(MapToDto).ToList();
         }
 
@@ -66,7 +66,7 @@ namespace ASUDorms.Infrastructure.Services
             return new HolidayDto
             {
                 Id = holiday.Id,
-                StudentId = holiday.StudentId,
+                StudentNationalId = holiday.StudentNationalId,
                 StartDate = holiday.StartDate,
                 EndDate = holiday.EndDate,
             };

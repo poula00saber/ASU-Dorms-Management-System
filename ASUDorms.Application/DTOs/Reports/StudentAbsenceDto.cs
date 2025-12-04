@@ -10,7 +10,7 @@ namespace ASUDorms.Application.DTOs.Reports
     [Obsolete("Use MealAbsenceReportDto instead")]
     public class StudentAbsenceDto
     {
-        public string StudentId { get; set; }
+        public string StudentNationalId { get; set; }
         public string StudentName { get; set; }
         public string BuildingNumber { get; set; }
         public string RoomNumber { get; set; }

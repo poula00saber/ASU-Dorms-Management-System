@@ -9,8 +9,10 @@ namespace ASUDorms.Application.DTOs.Students
 {
     public class StudentDto
     {
+        public int DormLocationId { get; set; }
         public string StudentId { get; set; }
         public string NationalId { get; set; }
+        public bool IsEgyptian { get; set; }
         public string FirstName { get; set; }
         public string LastName { get; set; }
         public string FullName => $"{FirstName} {LastName}";
@@ -25,12 +27,25 @@ namespace ASUDorms.Application.DTOs.Students
         public string Faculty { get; set; }
         public int Level { get; set; }
         public string Grade { get; set; }
+        public decimal? PercentageGrade { get; set; }
+
+        // Secondary School Info
+        public string SecondarySchoolName { get; set; }
+        public string SecondarySchoolGovernment { get; set; }
+        public decimal? HighSchoolPercentage { get; set; }
+
         public DormType DormType { get; set; }
         public string BuildingNumber { get; set; }
         public string RoomNumber { get; set; }
         public bool HasSpecialNeeds { get; set; }
-        public string? SpecialNeedsDetails { get; set; }
+        public string SpecialNeedsDetails { get; set; }
         public bool IsExemptFromFees { get; set; }
+
+        // Meal & Payment Info
+        public int MissedMealsCount { get; set; }
+        public bool HasOutstandingPayment { get; set; }
+        public decimal OutstandingAmount { get; set; }
+
         public string FatherName { get; set; }
         public string FatherNationalId { get; set; }
         public string FatherProfession { get; set; }
@@ -38,6 +53,5 @@ namespace ASUDorms.Application.DTOs.Students
         public string GuardianName { get; set; }
         public string GuardianRelationship { get; set; }
         public string GuardianPhone { get; set; }
-        public int DormLocationId { get; set; }
     }
 }

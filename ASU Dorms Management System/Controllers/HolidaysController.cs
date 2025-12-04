@@ -24,7 +24,7 @@ namespace ASU_Dorms_Management_System.Controllers
             try
             {
                 var holiday = await _holidayService.CreateHolidayAsync(dto);
-                return CreatedAtAction(nameof(GetByStudent), new { studentId = dto.StudentId }, holiday);
+                return CreatedAtAction(nameof(GetByStudent), new { studentId = dto.StudentNationalId }, holiday);
             }
             catch (KeyNotFoundException ex)
             {

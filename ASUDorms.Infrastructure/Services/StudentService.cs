@@ -1,14 +1,15 @@
 ﻿using ASUDorms.Application.DTOs.Students;
 using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
+using ASUDorms.Domain.Enums;
 using ASUDorms.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ASUDorms.Infrastructure.Services
@@ -25,6 +26,7 @@ namespace ASUDorms.Infrastructure.Services
             _authService = authService;
             _logger = logger;
         }
+
         public async Task<StudentDto> CreateStudentAsync(CreateStudentDto dto)
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
@@ -35,6 +37,17 @@ namespace ASUDorms.Infrastructure.Services
             }
 
             _logger.LogInformation($"Creating student for dorm location: {dormLocationId}");
+
+            // Validate secondary school info for new students
+            if (dto.Status == StudentStatus.NewStudent)
+            {
+                if (string.IsNullOrWhiteSpace(dto.SecondarySchoolName))
+                    throw new InvalidOperationException("Secondary school name is required for new students");
+                if (string.IsNullOrWhiteSpace(dto.SecondarySchoolGovernment))
+                    throw new InvalidOperationException("Secondary school government is required for new students");
+                if (!dto.HighSchoolPercentage.HasValue)
+                    throw new InvalidOperationException("High school percentage is required for new students");
+            }
 
             // Check if StudentId already exists in this location
             var existingStudent = await _unitOfWork.Students
@@ -56,8 +69,10 @@ namespace ASUDorms.Infrastructure.Services
 
             var student = new Student
             {
+                DormLocationId = dormLocationId,
                 StudentId = dto.StudentId,
                 NationalId = dto.NationalId,
+                IsEgyptian = dto.IsEgyptian,
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Status = dto.Status,
@@ -70,6 +85,10 @@ namespace ASUDorms.Infrastructure.Services
                 Faculty = dto.Faculty,
                 Level = dto.Level,
                 Grade = dto.Grade,
+                PercentageGrade = dto.PercentageGrade,
+                SecondarySchoolName = dto.SecondarySchoolName,
+                SecondarySchoolGovernment = dto.SecondarySchoolGovernment,
+                HighSchoolPercentage = dto.HighSchoolPercentage,
                 DormType = dto.DormType,
                 BuildingNumber = dto.BuildingNumber,
                 RoomNumber = dto.RoomNumber,
@@ -83,8 +102,10 @@ namespace ASUDorms.Infrastructure.Services
                 GuardianName = dto.GuardianName,
                 GuardianRelationship = dto.GuardianRelationship,
                 GuardianPhone = dto.GuardianPhone,
-                DormLocationId = dormLocationId,
-                PhotoUrl = dto.PhotoUrl
+                PhotoUrl = dto.PhotoUrl,
+                MissedMealsCount = 0,
+                HasOutstandingPayment = false,
+                OutstandingAmount = 0
             };
 
             await _unitOfWork.Students.AddAsync(student);
@@ -94,6 +115,7 @@ namespace ASUDorms.Infrastructure.Services
 
             return MapToDto(student);
         }
+
         public async Task<StudentDto> UpdateStudentAsync(string studentId, CreateStudentDto dto)
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
@@ -112,11 +134,23 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException("Student not found");
             }
 
-            // Check if NationalId is being changed and if it already exists (excluding current student)
+            // Validate secondary school info for new students
+            if (dto.Status == StudentStatus.NewStudent)
+            {
+                if (string.IsNullOrWhiteSpace(dto.SecondarySchoolName))
+                    throw new InvalidOperationException("Secondary school name is required for new students");
+                if (string.IsNullOrWhiteSpace(dto.SecondarySchoolGovernment))
+                    throw new InvalidOperationException("Secondary school government is required for new students");
+                if (!dto.HighSchoolPercentage.HasValue)
+                    throw new InvalidOperationException("High school percentage is required for new students");
+            }
+
+            // Check if NationalId is being changed and if it already exists
             if (student.NationalId != dto.NationalId)
             {
                 var existingNationalId = await _unitOfWork.Students
-                    .FindAsync(s => s.NationalId == dto.NationalId && s.StudentId != studentId);
+                    .FindAsync(s => s.NationalId == dto.NationalId &&
+                                   !(s.StudentId == studentId && s.DormLocationId == dormLocationId));
 
                 if (existingNationalId.Any())
                 {
@@ -126,6 +160,7 @@ namespace ASUDorms.Infrastructure.Services
 
             // Update properties
             student.NationalId = dto.NationalId;
+            student.IsEgyptian = dto.IsEgyptian;
             student.FirstName = dto.FirstName;
             student.LastName = dto.LastName;
             student.Status = dto.Status;
@@ -138,6 +173,10 @@ namespace ASUDorms.Infrastructure.Services
             student.Faculty = dto.Faculty;
             student.Level = dto.Level;
             student.Grade = dto.Grade;
+            student.PercentageGrade = dto.PercentageGrade;
+            student.SecondarySchoolName = dto.SecondarySchoolName;
+            student.SecondarySchoolGovernment = dto.SecondarySchoolGovernment;
+            student.HighSchoolPercentage = dto.HighSchoolPercentage;
             student.DormType = dto.DormType;
             student.BuildingNumber = dto.BuildingNumber;
             student.RoomNumber = dto.RoomNumber;
@@ -151,7 +190,11 @@ namespace ASUDorms.Infrastructure.Services
             student.GuardianName = dto.GuardianName;
             student.GuardianRelationship = dto.GuardianRelationship;
             student.GuardianPhone = dto.GuardianPhone;
-            student.PhotoUrl = dto.PhotoUrl;
+
+            if (!string.IsNullOrEmpty(dto.PhotoUrl))
+            {
+                student.PhotoUrl = dto.PhotoUrl;
+            }
 
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
@@ -193,7 +236,7 @@ namespace ASUDorms.Infrastructure.Services
             var students = await _unitOfWork.Students
                 .Query()
                 .Include(s => s.DormLocation)
-                .Where(s => s.DormLocationId == dormLocationId)
+                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
                 .OrderBy(s => s.FirstName)
                 .ThenBy(s => s.LastName)
                 .ToListAsync();
@@ -214,6 +257,7 @@ namespace ASUDorms.Infrastructure.Services
                 .Query()
                 .Include(s => s.DormLocation)
                 .Where(s => s.DormLocationId == dormLocationId &&
+                           !s.IsDeleted &&
                            (s.StudentId.Contains(searchTerm) ||
                             s.NationalId.Contains(searchTerm) ||
                             s.FirstName.Contains(searchTerm) ||
@@ -245,8 +289,11 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException("Student not found");
             }
 
+            // Physical delete
             _unitOfWork.Students.Delete(student);
             await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation($"Student {studentId} deleted from dorm location {dormLocationId}");
         }
 
         public async Task SoftDeleteStudentAsync(string studentId)
@@ -267,12 +314,12 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException("Student not found");
             }
 
-            // If you have an IsDeleted property, use it instead of physical delete
-            // student.IsDeleted = true;
-            // _unitOfWork.Students.Update(student);
-
-            _unitOfWork.Students.Delete(student);
+            // Soft delete - mark as deleted
+            student.IsDeleted = true;
+            _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation($"Student {studentId} soft deleted from dorm location {dormLocationId}");
         }
 
         public async Task<string> UploadPhotoAsync(IFormFile file, string studentId)
@@ -298,6 +345,7 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException("Student not found");
             }
 
+            // Validate file type
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
@@ -306,18 +354,39 @@ namespace ASUDorms.Infrastructure.Services
                 throw new ArgumentException("Only JPG, JPEG, PNG and GIF files are allowed");
             }
 
-            // Validate file size (e.g., 5MB max)
+            // Validate file size (5MB max)
             if (file.Length > 5 * 1024 * 1024)
             {
                 throw new ArgumentException("File size cannot exceed 5MB");
             }
 
+            // Create uploads folder if it doesn't exist
             var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "photos");
             Directory.CreateDirectory(uploadsFolder);
 
-            var fileName = $"{studentId}_{DateTime.UtcNow.Ticks}{extension}";
+            // Delete old photo if exists
+            if (!string.IsNullOrEmpty(student.PhotoUrl))
+            {
+                var oldPhotoPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", student.PhotoUrl.TrimStart('/'));
+                if (File.Exists(oldPhotoPath))
+                {
+                    try
+                    {
+                        File.Delete(oldPhotoPath);
+                        _logger.LogInformation($"Deleted old photo: {oldPhotoPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"Could not delete old photo: {ex.Message}");
+                    }
+                }
+            }
+
+            // Generate unique filename
+            var fileName = $"{dormLocationId}_{studentId}_{DateTime.UtcNow.Ticks}{extension}";
             var filePath = Path.Combine(uploadsFolder, fileName);
 
+            // Save file
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
                 await file.CopyToAsync(stream);
@@ -325,9 +394,12 @@ namespace ASUDorms.Infrastructure.Services
 
             var photoUrl = $"/uploads/photos/{fileName}";
 
+            // Update student photo URL
             student.PhotoUrl = photoUrl;
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation($"Photo uploaded for student {studentId}: {photoUrl}");
 
             return photoUrl;
         }
@@ -345,6 +417,7 @@ namespace ASUDorms.Infrastructure.Services
                 .Query()
                 .Include(s => s.DormLocation)
                 .Where(s => s.DormLocationId == dormLocationId &&
+                           !s.IsDeleted &&
                            s.BuildingNumber == buildingNumber)
                 .OrderBy(s => s.RoomNumber)
                 .ThenBy(s => s.FirstName)
@@ -366,6 +439,7 @@ namespace ASUDorms.Infrastructure.Services
                 .Query()
                 .Include(s => s.DormLocation)
                 .Where(s => s.DormLocationId == dormLocationId &&
+                           !s.IsDeleted &&
                            s.Faculty == faculty)
                 .OrderBy(s => s.Level)
                 .ThenBy(s => s.FirstName)
@@ -378,8 +452,10 @@ namespace ASUDorms.Infrastructure.Services
         {
             return new StudentDto
             {
+                DormLocationId = student.DormLocationId,
                 StudentId = student.StudentId,
                 NationalId = student.NationalId,
+                IsEgyptian = student.IsEgyptian,
                 FirstName = student.FirstName,
                 LastName = student.LastName,
                 Status = student.Status,
@@ -393,20 +469,26 @@ namespace ASUDorms.Infrastructure.Services
                 Faculty = student.Faculty,
                 Level = student.Level,
                 Grade = student.Grade,
+                PercentageGrade = student.PercentageGrade,
+                SecondarySchoolName = student.SecondarySchoolName,
+                SecondarySchoolGovernment = student.SecondarySchoolGovernment,
+                HighSchoolPercentage = student.HighSchoolPercentage,
                 DormType = student.DormType,
                 BuildingNumber = student.BuildingNumber,
                 RoomNumber = student.RoomNumber,
                 HasSpecialNeeds = student.HasSpecialNeeds,
                 SpecialNeedsDetails = student.SpecialNeedsDetails,
                 IsExemptFromFees = student.IsExemptFromFees,
+                MissedMealsCount = student.MissedMealsCount,
+                HasOutstandingPayment = student.HasOutstandingPayment,
+                OutstandingAmount = student.OutstandingAmount,
                 FatherName = student.FatherName,
                 FatherNationalId = student.FatherNationalId,
                 FatherProfession = student.FatherProfession,
                 FatherPhone = student.FatherPhone,
                 GuardianName = student.GuardianName,
                 GuardianRelationship = student.GuardianRelationship,
-                GuardianPhone = student.GuardianPhone,
-                DormLocationId = student.DormLocationId,
+                GuardianPhone = student.GuardianPhone
             };
         }
     }

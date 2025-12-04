@@ -61,7 +61,7 @@ namespace ASUDorms.Infrastructure.Services
             var totalStudents = students.Count;
             var activeStudents = students.Count(s => s.IsDeleted == false);
             var onLeaveStudents = todayHolidays
-                .Select(h => h.StudentId)
+                .Select(h => h.StudentNationalId)
                 .Distinct()
                 .Count();
 
@@ -91,16 +91,16 @@ namespace ASUDorms.Infrastructure.Services
                     var buildingStudentIds = buildingStudents.Select(s => s.StudentId).ToList();
 
                     var buildingOnLeave = todayHolidays
-                        .Count(h => buildingStudentIds.Contains(h.StudentId));
+                        .Count(h => buildingStudentIds.Contains(h.StudentNationalId));
 
                     var buildingActive = buildingStudents.Count(s => s.IsDeleted == false);
                     var buildingNotOnHoliday = buildingStudents.Count - buildingOnLeave;
 
                     var buildingBreakfastDinner = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentId) && m.MealType.Name == "BreakfastDinner");
+                        .Count(m => buildingStudentIds.Contains(m.StudentNationalId) && m.MealType.Name == "BreakfastDinner");
 
                     var buildingLunch = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentId) && m.MealType.Name == "Lunch");
+                        .Count(m => buildingStudentIds.Contains(m.StudentNationalId) && m.MealType.Name == "Lunch");
 
                     var buildingTotalReceived = buildingBreakfastDinner + buildingLunch;
                     var buildingTotalExpected = buildingNotOnHoliday * 2; // BreakfastDinner + Lunch
@@ -259,11 +259,11 @@ namespace ASUDorms.Infrastructure.Services
                 foreach (var student in buildingGroup)
                 {
                     // Get student's holidays
-                    var studentHolidays = holidays.Where(h => h.StudentId == student.StudentId).ToList();
+                    var studentHolidays = holidays.Where(h => h.StudentNationalId == student.StudentId).ToList();
 
                     // Get student's meal transactions
                     var studentMealTransactions = mealTransactions
-                        .Where(m => m.StudentId == student.StudentId)
+                        .Where(m => m.StudentNationalId == student.StudentId)
                         .ToList();
 
                     // Count days on holiday
@@ -326,7 +326,7 @@ namespace ASUDorms.Infrastructure.Services
 
                         buildingStudents.Add(new StudentAbsenceDetailDto
                         {
-                            StudentId = student.StudentId,
+                            StudentNationalId = student.NationalId,
                             StudentName = $"{student.FirstName} {student.LastName}",
                             BuildingNumber = student.BuildingNumber,
                             RoomNumber = student.RoomNumber,
@@ -407,7 +407,7 @@ namespace ASUDorms.Infrastructure.Services
                     TotalStudents = g.Count(),
                     CurrentCapacity = g.Count(), // You can add max capacity field if needed
                     TotalMealsServed = mealTransactions.Count(m =>
-                        g.Any(s => s.StudentId == m.StudentId)),
+                        g.Any(s => s.StudentId == m.StudentNationalId)),
                     AttendanceRate = CalculateAttendanceRate(g.ToList(), mealTransactions, fromDate, toDate)
                 })
                 .OrderBy(b => b.BuildingNumber)
@@ -456,7 +456,7 @@ namespace ASUDorms.Infrastructure.Services
 
                 .ToListAsync();
 
-            var studentIdsOnHoliday = holidays.Select(h => h.StudentId).Distinct().ToList();
+            var studentIdsOnHoliday = holidays.Select(h => h.StudentNationalId).Distinct().ToList();
 
             // Calculate students NOT on holiday (these are the ones who should eat)
             var studentsNotOnHoliday = totalStudents - studentIdsOnHoliday.Count;
@@ -464,7 +464,7 @@ namespace ASUDorms.Infrastructure.Services
             var studentIds = students.Select(s => s.StudentId).ToList();
             var mealTransactions = await _unitOfWork.MealTransactions
                 .Query()
-                .Where(m => m.Date.Date == date.Date &&m.DormLocationId == dormLocationId &&studentIds.Contains(m.StudentId))
+                .Where(m => m.Date.Date == date.Date &&m.DormLocationId == dormLocationId &&studentIds.Contains(m.StudentNationalId))
                 .Include(m => m.MealType).ToListAsync();
 
             // Calculate BreakfastDinner stats
@@ -541,7 +541,7 @@ namespace ASUDorms.Infrastructure.Services
             if (expectedMeals == 0) return 0;
 
             var studentIds = students.Select(s => s.StudentId).ToList();
-            var actualMeals = transactions.Count(t => studentIds.Contains(t.StudentId));
+            var actualMeals = transactions.Count(t => studentIds.Contains(t.StudentNationalId));
 
             return (decimal)actualMeals / expectedMeals * 100;
         }

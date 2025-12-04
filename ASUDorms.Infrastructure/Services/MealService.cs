@@ -82,7 +82,7 @@ namespace ASUDorms.Infrastructure.Services
 
             // 5. Check if student is on holiday today
             var isOnHoliday = await _unitOfWork.Holidays.Query()
-                .AnyAsync(h => h.StudentId == student.StudentId &&
+                .AnyAsync(h => h.StudentNationalId == student.NationalId&&
                               h.StartDate.Date <= today &&
                               h.EndDate.Date >= today);
 
@@ -98,7 +98,7 @@ namespace ASUDorms.Infrastructure.Services
 
             // 6. Check if student already received this meal today
             var alreadyAte = await _unitOfWork.MealTransactions.Query()
-                .AnyAsync(mt => mt.StudentId == student.StudentId &&
+                .AnyAsync(mt => mt.StudentNationalId == student.NationalId &&
                                mt.MealTypeId == request.MealTypeId &&
                                mt.Date.Date == today);
 
@@ -115,7 +115,7 @@ namespace ASUDorms.Infrastructure.Services
             // 7. Create meal transaction
             var mealTransaction = new MealTransaction
             {
-                StudentId = student.StudentId,
+                StudentNationalId = student.NationalId,
                 MealTypeId = request.MealTypeId,
                 Date = DateTime.Now,
                 DormLocationId = dormLocationId,
@@ -154,7 +154,7 @@ namespace ASUDorms.Infrastructure.Services
             if (mealTypeId == 2)
             {
                 var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
-                var endTime = new TimeSpan(21, 0, 0);    // 9:00 PM
+                var endTime = new TimeSpan(24, 0, 0);    // 9:00 PM
                 return currentTime >= startTime && currentTime <= endTime;
             }
 

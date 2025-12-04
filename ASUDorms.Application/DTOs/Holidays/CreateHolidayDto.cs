@@ -8,7 +8,7 @@ namespace ASUDorms.Application.DTOs.Holidays
 {
     public class CreateHolidayDto
     {
-        public string StudentId { get; set; }
+        public string StudentNationalId { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime EndDate { get; set; }
     }

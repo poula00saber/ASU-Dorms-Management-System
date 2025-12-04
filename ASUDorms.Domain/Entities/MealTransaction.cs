@@ -14,7 +14,10 @@ namespace ASUDorms.Domain.Entities
         public int Id { get; set; }
 
         [Required]
+        [MaxLength(25)]
         [ForeignKey(nameof(Student))]
+        public string StudentNationalId { get; set; }   // FK → Student
+        [Required]
         [MaxLength(20)]
         public string StudentId { get; set; }
 
