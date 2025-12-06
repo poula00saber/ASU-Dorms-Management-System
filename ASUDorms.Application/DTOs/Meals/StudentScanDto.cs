@@ -8,7 +8,8 @@ namespace ASUDorms.Application.DTOs.Meals
 {
         public class StudentScanDto
         {
-            public string StudentId { get; set; }
+        public string StudentId { get; set; }
+        public string NationalId { get; set; } // Can be passport number for foreigners
             public string FirstName { get; set; }
             public string LastName { get; set; }
             public string BuildingNumber { get; set; }

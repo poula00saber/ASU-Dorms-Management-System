@@ -25,6 +25,8 @@ namespace ASUDorms.Infrastructure.Repositories
             Holidays = new Repository<Holiday>(_context);
             MealTypes = new Repository<MealType>(_context);
             MealTransactions = new Repository<MealTransaction>(_context);
+            PaymentExemptions= new Repository<PaymentExemption>(_context);
+            PaymentTransactions= new Repository<PaymentTransaction>(_context);
         }
 
         public IRepository<DormLocation> DormLocations { get; }
@@ -33,6 +35,8 @@ namespace ASUDorms.Infrastructure.Repositories
         public IRepository<Holiday> Holidays { get; }
         public IRepository<MealType> MealTypes { get; }
         public IRepository<MealTransaction> MealTransactions { get; }
+        public IRepository<PaymentExemption> PaymentExemptions{ get; }
+        public IRepository<PaymentTransaction> PaymentTransactions { get; }
 
         public async Task<int> SaveChangesAsync()
         {

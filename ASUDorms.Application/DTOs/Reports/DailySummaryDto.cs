@@ -16,5 +16,7 @@ namespace ASUDorms.Application.DTOs.Reports
 
         public int TotalMealsRemaining { get; set; }
         public decimal OverallAttendancePercentage { get; set; }
+        public int EligibleStudents { get; set; } // Students eligible for meals (after payment check)
+        public int StudentsNotEligible { get; set; } // Students not eligible due to payment issues
     }
 }

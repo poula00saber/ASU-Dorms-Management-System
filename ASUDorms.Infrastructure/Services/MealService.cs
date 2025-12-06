@@ -19,24 +19,16 @@ namespace ASUDorms.Infrastructure.Services
             _unitOfWork = unitOfWork;
             _authService = authService;
         }
-
         public async Task<MealScanResultDto> ScanMealAsync(MealScanRequestDto request)
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
-            Console.WriteLine(dormLocationId);
             var today = DateTime.Today;
+            var now = DateTime.Now;
 
             // 1. Find student by national ID
             var student = await _unitOfWork.Students.Query()
                 .Where(s => s.NationalId == request.NationalId)
                 .FirstOrDefaultAsync();
-
-
-
-            Console.WriteLine("============================================================");
-            Console.WriteLine("Received NationalId: " + request.NationalId);
-            Console.WriteLine("============================================================");
-
 
             if (student == null)
             {
@@ -82,7 +74,7 @@ namespace ASUDorms.Infrastructure.Services
 
             // 5. Check if student is on holiday today
             var isOnHoliday = await _unitOfWork.Holidays.Query()
-                .AnyAsync(h => h.StudentNationalId == student.NationalId&&
+                .AnyAsync(h => h.StudentNationalId == student.NationalId &&
                               h.StartDate.Date <= today &&
                               h.EndDate.Date >= today);
 
@@ -96,44 +88,78 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 6. Check if student already received this meal today
-            var alreadyAte = await _unitOfWork.MealTransactions.Query()
-                .AnyAsync(mt => mt.StudentNationalId == student.NationalId &&
-                               mt.MealTypeId == request.MealTypeId &&
-                               mt.Date.Date == today);
+            // 6. Payment and Exemption Logic
+            // Check if student has outstanding payment
+            if (student.HasOutstandingPayment)
+            {
+                // If student is exempt from fees, allow meal regardless of payment
+                if (student.IsExemptFromFees)
+                {
+                    // Allow meal - student is exempt from all fees
+                    // Continue to next checks
+                }
+                else
+                {
+                    // Check for valid payment exemption
+                    var hasValidExemption = await _unitOfWork.PaymentExemptions.Query()
+                        .AnyAsync(pe => pe.StudentNationalId == student.NationalId &&
+                                       pe.IsActive &&
+                                       pe.StartDate.Date <= today &&
+                                       pe.EndDate.Date >= today);
 
-            if (alreadyAte)
+                    if (!hasValidExemption)
+                    {
+                        return new MealScanResultDto
+                        {
+                            Success = false,
+                            Message = "يوجد مستحقات مالية معلقة - يرجى مراجعة الإدارة",
+                            Student = MapToStudentDto(student)
+                        };
+                    }
+                    // If has valid exemption, allow meal
+                }
+            }
+
+            // 7. Check if student already received this meal today and get the previous transaction
+            var previousTransaction = await _unitOfWork.MealTransactions.Query()
+                .Where(mt => mt.StudentNationalId == student.NationalId &&
+                           mt.MealTypeId == request.MealTypeId &&
+                           mt.Date.Date == today)
+                .FirstOrDefaultAsync();
+
+            if (previousTransaction != null)
             {
                 return new MealScanResultDto
                 {
                     Success = false,
                     Message = "تم تناول هذه الوجبة بالفعل اليوم",
-                    Student = MapToStudentDto(student)
+                    Student = MapToStudentDto(student, previousTransaction.Date) // Pass previous time
                 };
             }
-            
-            // 7. Create meal transaction
+
+            // 8. Create meal transaction
             var mealTransaction = new MealTransaction
             {
                 StudentNationalId = student.NationalId,
+                StudentId = student.StudentId,
                 MealTypeId = request.MealTypeId,
-                Date = DateTime.Now,
+                Date = now,
                 DormLocationId = dormLocationId,
-                ScannedByUserId = dormLocationId
+                ScannedByUserId = dormLocationId,
+                Time = now.TimeOfDay
             };
 
             await _unitOfWork.MealTransactions.AddAsync(mealTransaction);
             await _unitOfWork.SaveChangesAsync();
 
-            // 8. Return success
+            // 9. Return success
             return new MealScanResultDto
             {
                 Success = true,
                 Message = "تم مسح الوجبة بنجاح",
-                Student = MapToStudentDto(student)
+                Student = MapToStudentDto(student, now) // Pass current time
             };
         }
-
         public async Task<bool> IsTimeValidForMealTypeAsync(int mealTypeId)
         {
             var currentTime = DateTime.Now.TimeOfDay;
@@ -161,16 +187,17 @@ namespace ASUDorms.Infrastructure.Services
             return false;
         }
 
-        private StudentScanDto MapToStudentDto(Student student)
+        private StudentScanDto MapToStudentDto(Student student,DateTime? scanTime = null)
         {
             return new StudentScanDto
             {
                 StudentId = student.StudentId,
+                NationalId=student.NationalId,
                 FirstName = student.FirstName,
                 LastName = student.LastName,
                 BuildingNumber = student.BuildingNumber,
                 PhotoUrl = student.PhotoUrl,
-                timeScanned = DateTime.Now
+                timeScanned = scanTime // Add this property to your DTO
             };
         }
     }

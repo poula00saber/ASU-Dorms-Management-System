@@ -32,7 +32,6 @@ namespace ASUDorms.Infrastructure.Services
 
 
         // deeeeeeeeeep seeeeeeek
-
         public async Task<RegistrationDashboardDto> GetRegistrationDashboardStatsAsync()
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
@@ -57,6 +56,36 @@ namespace ASUDorms.Infrastructure.Services
                 .Include(m => m.MealType)
                 .ToListAsync();
 
+            // Get active payment exemptions for today
+            var paymentExemptions = await _unitOfWork.PaymentExemptions
+                .Query()
+                .Where(pe => pe.IsActive &&
+                            pe.StartDate.Date <= currentDate &&
+                            pe.EndDate.Date >= currentDate)
+                .ToListAsync();
+
+            // Filter students who are eligible for meals
+            var eligibleStudents = students
+                .Where(s =>
+                {
+                    // If student is exempt from fees, always eligible
+                    if (s.IsExemptFromFees)
+                        return true;
+
+                    // If student has outstanding payment
+                    if (s.HasOutstandingPayment)
+                    {
+                        // Check if they have a valid payment exemption
+                        var hasValidExemption = paymentExemptions
+                            .Any(pe => pe.StudentNationalId == s.NationalId);
+                        return hasValidExemption;
+                    }
+
+                    // No outstanding payment, eligible
+                    return true;
+                })
+                .ToList();
+
             // Calculate statistics
             var totalStudents = students.Count;
             var activeStudents = students.Count(s => s.IsDeleted == false);
@@ -65,13 +94,17 @@ namespace ASUDorms.Infrastructure.Services
                 .Distinct()
                 .Count();
 
-            // Calculate meal statistics
-            var breakfastDinnerReceived = todayMealTransactions
-                .Count(m => m.MealType.Name == "BreakfastDinner");
-            var lunchReceived = todayMealTransactions
-                .Count(m => m.MealType.Name == "Lunch");
+            // Calculate meal statistics - ONLY for eligible students
+            var eligibleStudentIds = eligibleStudents.Select(s => s.NationalId).ToList();
 
-            var studentsNotOnHoliday = totalStudents - onLeaveStudents;
+            var breakfastDinnerReceived = todayMealTransactions
+                .Count(m => m.MealType.Name == "BreakfastDinner" && eligibleStudentIds.Contains(m.StudentNationalId));
+            var lunchReceived = todayMealTransactions
+                .Count(m => m.MealType.Name == "Lunch" && eligibleStudentIds.Contains(m.StudentNationalId));
+
+            var studentsNotOnHoliday = eligibleStudents.Count -
+                todayHolidays.Count(h => eligibleStudentIds.Contains(h.StudentNationalId));
+
             var expectedBreakfastDinner = studentsNotOnHoliday;
             var expectedLunch = studentsNotOnHoliday;
 
@@ -88,19 +121,36 @@ namespace ASUDorms.Infrastructure.Services
                 .Select(g =>
                 {
                     var buildingStudents = g.ToList();
-                    var buildingStudentIds = buildingStudents.Select(s => s.StudentId).ToList();
+                    var buildingStudentIds = buildingStudents.Select(s => s.NationalId).ToList();
+
+                    // Filter eligible students in this building
+                    var eligibleBuildingStudents = buildingStudents
+                        .Where(s =>
+                        {
+                            if (s.IsExemptFromFees)
+                                return true;
+                            if (s.HasOutstandingPayment)
+                                return paymentExemptions.Any(pe => pe.StudentNationalId == s.NationalId);
+                            return true;
+                        })
+                        .ToList();
+
+                    var buildingEligibleIds = eligibleBuildingStudents.Select(s => s.NationalId).ToList();
 
                     var buildingOnLeave = todayHolidays
                         .Count(h => buildingStudentIds.Contains(h.StudentNationalId));
 
                     var buildingActive = buildingStudents.Count(s => s.IsDeleted == false);
-                    var buildingNotOnHoliday = buildingStudents.Count - buildingOnLeave;
+                    var buildingNotOnHoliday = eligibleBuildingStudents.Count -
+                        todayHolidays.Count(h => buildingEligibleIds.Contains(h.StudentNationalId));
 
                     var buildingBreakfastDinner = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentNationalId) && m.MealType.Name == "BreakfastDinner");
+                        .Count(m => buildingEligibleIds.Contains(m.StudentNationalId) &&
+                                  m.MealType.Name == "BreakfastDinner");
 
                     var buildingLunch = todayMealTransactions
-                        .Count(m => buildingStudentIds.Contains(m.StudentNationalId) && m.MealType.Name == "Lunch");
+                        .Count(m => buildingEligibleIds.Contains(m.StudentNationalId) &&
+                                  m.MealType.Name == "Lunch");
 
                     var buildingTotalReceived = buildingBreakfastDinner + buildingLunch;
                     var buildingTotalExpected = buildingNotOnHoliday * 2; // BreakfastDinner + Lunch
@@ -200,14 +250,14 @@ namespace ASUDorms.Infrastructure.Services
 
 
         public async Task<MealAbsenceReportDto> GetMealAbsenceReportAsync(
-            DateTime fromDate,
-            DateTime toDate,
-            string buildingNumber = null,
-            string government = null,
-            string district = null,
-            string faculty = null)
+    DateTime fromDate,
+    DateTime toDate,
+    string buildingNumber = null,
+    string government = null,
+    string district = null,
+    string faculty = null)
         {
-            var dormLocationId =await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
 
             // Get all students with filters
             var studentsQuery = _unitOfWork.Students.Query()
@@ -226,6 +276,13 @@ namespace ASUDorms.Infrastructure.Services
                 studentsQuery = studentsQuery.Where(s => s.Faculty == faculty);
 
             var students = await studentsQuery.ToListAsync();
+
+            // Get all payment exemptions in date range
+            var paymentExemptions = await _unitOfWork.PaymentExemptions
+                .Query()
+                .Where(pe => pe.IsActive &&
+                            ((pe.StartDate.Date <= toDate.Date && pe.EndDate.Date >= fromDate.Date)))
+                .ToListAsync();
 
             // Get all meal transactions in date range
             var mealTransactions = await _unitOfWork.MealTransactions
@@ -258,12 +315,47 @@ namespace ASUDorms.Infrastructure.Services
 
                 foreach (var student in buildingGroup)
                 {
+                    // Check if student is eligible for meals
+                    bool isEligible = true;
+
+                    // Check payment status for each day in the range
+                    for (var date = fromDate.Date; date <= toDate.Date; date = date.AddDays(1))
+                    {
+                        if (student.IsExemptFromFees)
+                        {
+                            // Always eligible if exempt from fees
+                            continue;
+                        }
+
+                        if (student.HasOutstandingPayment)
+                        {
+                            // Check if has valid exemption for this specific date
+                            var hasValidExemption = paymentExemptions
+                                .Any(pe => pe.StudentNationalId == student.NationalId &&
+                                          pe.StartDate.Date <= date &&
+                                          pe.EndDate.Date >= date);
+
+                            if (!hasValidExemption)
+                            {
+                                // Student is NOT eligible for meals on this day
+                                isEligible = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!isEligible)
+                    {
+                        // Skip student entirely - they shouldn't have meals counted
+                        continue;
+                    }
+
                     // Get student's holidays
-                    var studentHolidays = holidays.Where(h => h.StudentNationalId == student.StudentId).ToList();
+                    var studentHolidays = holidays.Where(h => h.StudentNationalId == student.NationalId).ToList();
 
                     // Get student's meal transactions
                     var studentMealTransactions = mealTransactions
-                        .Where(m => m.StudentNationalId == student.StudentId)
+                        .Where(m => m.StudentNationalId == student.NationalId)
                         .ToList();
 
                     // Count days on holiday
@@ -434,10 +526,10 @@ namespace ASUDorms.Infrastructure.Services
         }
 
         public async Task<RestaurantDailyReportDto> GetRestaurantDailyReportAsync(
-            DateTime date,
-            string buildingNumber = null)
+    DateTime date,
+    string buildingNumber = null)
         {
-            var dormLocationId = _authService.GetCurrentDormLocationId();
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
 
             // Get all students in the dorm location
             var studentsQuery = _unitOfWork.Students.Query()
@@ -449,35 +541,64 @@ namespace ASUDorms.Infrastructure.Services
             var students = await studentsQuery.ToListAsync();
             var totalStudents = students.Count;
 
+            // Get payment exemptions for this date
+            var paymentExemptions = await _unitOfWork.PaymentExemptions
+                .Query()
+                .Where(pe => pe.IsActive &&
+                            pe.StartDate.Date <= date.Date &&
+                            pe.EndDate.Date >= date.Date)
+                .ToListAsync();
+
+            // Filter eligible students for this date
+            var eligibleStudents = students
+                .Where(s =>
+                {
+                    if (s.IsExemptFromFees)
+                        return true;
+
+                    if (s.HasOutstandingPayment)
+                    {
+                        return paymentExemptions.Any(pe => pe.StudentNationalId == s.NationalId);
+                    }
+
+                    return true;
+                })
+                .ToList();
+
+            var eligibleStudentIds = eligibleStudents.Select(s => s.NationalId).ToList();
+
             // Get students on holiday on this specific date
             var holidays = await _unitOfWork.Holidays
                 .Query()
                 .Where(h => h.StartDate.Date <= date.Date && h.EndDate.Date >= date.Date)
-
                 .ToListAsync();
 
-            var studentIdsOnHoliday = holidays.Select(h => h.StudentNationalId).Distinct().ToList();
+            var studentIdsOnHoliday = holidays
+                .Where(h => eligibleStudentIds.Contains(h.StudentNationalId))
+                .Select(h => h.StudentNationalId)
+                .Distinct()
+                .ToList();
 
             // Calculate students NOT on holiday (these are the ones who should eat)
-            var studentsNotOnHoliday = totalStudents - studentIdsOnHoliday.Count;
+            var studentsNotOnHoliday = eligibleStudents.Count - studentIdsOnHoliday.Count;
 
-            var studentIds = students.Select(s => s.StudentId).ToList();
             var mealTransactions = await _unitOfWork.MealTransactions
                 .Query()
-                .Where(m => m.Date.Date == date.Date &&m.DormLocationId == dormLocationId &&studentIds.Contains(m.StudentNationalId))
-                .Include(m => m.MealType).ToListAsync();
+                .Where(m => m.Date.Date == date.Date &&
+                           m.DormLocationId == dormLocationId &&
+                           eligibleStudentIds.Contains(m.StudentNationalId))
+                .Include(m => m.MealType)
+                .ToListAsync();
 
             // Calculate BreakfastDinner stats
             var breakfastDinnerReceived = mealTransactions
                 .Count(m => m.MealType.Name == "BreakfastDinner");
             var breakfastDinnerRemaining = studentsNotOnHoliday - breakfastDinnerReceived;
 
-
             // Calculate lunch stats
             var lunchReceived = mealTransactions
                 .Count(m => m.MealType.Name == "Lunch");
             var lunchRemaining = studentsNotOnHoliday - lunchReceived;
-
 
             // Total meals expected = students not on holiday × 2 meal times (BreakfastDinner + Lunch)
             var totalMealsExpected = studentsNotOnHoliday * 2;
@@ -511,6 +632,8 @@ namespace ASUDorms.Infrastructure.Services
                 Summary = new DailySummaryDto
                 {
                     TotalStudentsInBuilding = totalStudents,
+                    EligibleStudents = eligibleStudents.Count,
+                    StudentsNotEligible = totalStudents - eligibleStudents.Count,
                     StudentsNotOnHoliday = studentsNotOnHoliday,
                     StudentsOnHoliday = studentIdsOnHoliday.Count,
                     TotalMealsExpected = totalMealsExpected,

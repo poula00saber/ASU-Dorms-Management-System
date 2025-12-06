@@ -15,7 +15,8 @@ namespace ASUDorms.Domain.Interfaces
         IRepository<Holiday> Holidays { get; }
         IRepository<MealType> MealTypes { get; }
         IRepository<MealTransaction> MealTransactions { get; }
-
+         IRepository<PaymentExemption> PaymentExemptions { get; }
+        IRepository<PaymentTransaction> PaymentTransactions { get; }
         Task<int> SaveChangesAsync();
         Task BeginTransactionAsync();
         Task CommitTransactionAsync();

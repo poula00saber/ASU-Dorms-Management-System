@@ -27,6 +27,8 @@ namespace ASUDorms.Infrastructure.Data
         public DbSet<Holiday> Holidays { get; set; }
         public DbSet<MealType> MealTypes { get; set; }
         public DbSet<MealTransaction> MealTransactions { get; set; }
+        public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+        public DbSet<PaymentExemption> PaymentExemptions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -60,6 +62,10 @@ namespace ASUDorms.Infrastructure.Data
 
             modelBuilder.Entity<MealTransaction>()
                 .HasIndex(m => new { m.StudentNationalId, m.Date, m.MealTypeId });
+            modelBuilder.Entity<Holiday>()
+                .HasKey(h=>h.Id);
+
+           
         }
 
         private int GetCurrentDormLocationId()
