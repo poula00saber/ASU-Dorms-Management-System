@@ -46,7 +46,9 @@ namespace ASUDorms.Infrastructure.Services
             // Get today's holidays
             var todayHolidays = await _unitOfWork.Holidays
                 .Query()
-                .Where(h => h.StartDate.Date <= currentDate && h.EndDate.Date >= currentDate)
+                .Where(h => h.StartDate.Date <= currentDate &&
+                h.EndDate.Date >= currentDate &&
+                !h.IsDeleted) // ADD THIS
                 .ToListAsync();
 
             // Get today's meal transactions
@@ -194,7 +196,8 @@ namespace ASUDorms.Infrastructure.Services
                 .Query()
                 .Include(h => h.Student)
                 .Where(h => h.Student.DormLocationId == dormLocationId &&
-                           h.StartDate.Date >= currentDate.AddDays(-7))
+                           h.StartDate.Date >= currentDate.AddDays(-7) && 
+                           !h.IsDeleted)
                 .OrderByDescending(h => h.CreatedAt)
                 .Take(5)
                 .Select(h => new RecentLeaveRequestDto
@@ -297,7 +300,8 @@ namespace ASUDorms.Infrastructure.Services
             var holidays = await _unitOfWork.Holidays
                 .Query()
                 .Where(h => h.StartDate.Date <= toDate.Date &&
-                           h.EndDate.Date >= fromDate.Date)
+                           h.EndDate.Date >= fromDate.Date &&
+                           !h.IsDeleted)
                 .ToListAsync();
 
             // Group by building
@@ -351,7 +355,7 @@ namespace ASUDorms.Infrastructure.Services
                     }
 
                     // Get student's holidays
-                    var studentHolidays = holidays.Where(h => h.StudentNationalId == student.NationalId).ToList();
+                    var studentHolidays = holidays.Where(h => h.StudentNationalId == student.NationalId && !h.IsDeleted).ToList();
 
                     // Get student's meal transactions
                     var studentMealTransactions = mealTransactions
@@ -570,7 +574,7 @@ namespace ASUDorms.Infrastructure.Services
             // Get students on holiday on this specific date
             var holidays = await _unitOfWork.Holidays
                 .Query()
-                .Where(h => h.StartDate.Date <= date.Date && h.EndDate.Date >= date.Date)
+                .Where(h => h.StartDate.Date <= date.Date && h.EndDate.Date >= date.Date && !h.IsDeleted)
                 .ToListAsync();
 
             var studentIdsOnHoliday = holidays

@@ -76,7 +76,8 @@ namespace ASUDorms.Infrastructure.Services
             var isOnHoliday = await _unitOfWork.Holidays.Query()
                 .AnyAsync(h => h.StudentNationalId == student.NationalId &&
                               h.StartDate.Date <= today &&
-                              h.EndDate.Date >= today);
+                              h.EndDate.Date >= today &&
+                              !h.IsDeleted);
 
             if (isOnHoliday)
             {

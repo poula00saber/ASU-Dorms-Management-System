@@ -60,6 +60,7 @@ namespace ASU_Dorms_Management_System.Extensions
             services.AddScoped<IMealService, MealService>();
             services.AddScoped<IReportService, ReportService>();
             services.AddScoped<IHolidayService, HolidayService>();
+            services.AddScoped<IPaymentService, PaymentService>();
             services.AddScoped<DatabaseSeeder>();
 
             return services;

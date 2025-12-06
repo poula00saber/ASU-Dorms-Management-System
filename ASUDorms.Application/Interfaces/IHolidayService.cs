@@ -10,7 +10,8 @@ namespace ASUDorms.Application.Interfaces
     public interface IHolidayService
     {
         Task<HolidayDto> CreateHolidayAsync(CreateHolidayDto dto);
-        Task<List<HolidayDto>> GetHolidaysByStudentAsync(string studentId);
+        Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId);
+        Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId);
         Task DeleteHolidayAsync(int holidayId);
     }
 }
