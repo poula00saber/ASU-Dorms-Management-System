@@ -45,9 +45,6 @@ namespace ASUDorms.Domain.Entities
         // For missed meal payments
         public int? MissedMealsCount { get; set; }
 
-        [MaxLength(1000)]
-        public string? Notes { get; set; }
-
         [MaxLength(100)]
         public string ProcessedBy { get; set; } // اسم الموظف
 

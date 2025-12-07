@@ -53,7 +53,6 @@ namespace ASUDorms.Infrastructure.Services
                 Month = dto.Month,
                 Year = dto.Year,
                 MissedMealsCount = dto.MissedMealsCount,
-                Notes = dto.Notes,
                 ProcessedBy = await GetCurrentUserNameAsync()
             };
 
@@ -516,7 +515,6 @@ namespace ASUDorms.Infrastructure.Services
                 Month = payment.Month,
                 Year = payment.Year,
                 MissedMealsCount = payment.MissedMealsCount,
-                Notes = payment.Notes,
                 ProcessedBy = payment.ProcessedBy,
                 CreatedAt = payment.CreatedAt
             };

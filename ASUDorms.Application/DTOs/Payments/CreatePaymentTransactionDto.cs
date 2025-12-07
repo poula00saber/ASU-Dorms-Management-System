@@ -38,7 +38,5 @@ namespace ASUDorms.Application.DTOs.Payments
         [Range(1, int.MaxValue, ErrorMessage = "عدد الوجبات الفائتة يجب أن يكون أكبر من الصفر")]
         public int? MissedMealsCount { get; set; }
 
-        [StringLength(1000, ErrorMessage = "الملاحظات لا يمكن أن تتجاوز 1000 حرف")]
-        public string Notes { get; set; }
     }
 }
