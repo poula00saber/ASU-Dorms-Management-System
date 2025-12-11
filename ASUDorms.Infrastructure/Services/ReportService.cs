@@ -14,7 +14,7 @@ namespace ASUDorms.Infrastructure.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthService _authService;
-        private const decimal MEAL_PENALTY_AMOUNT = 10.00m;
+        private const decimal MEAL_PENALTY_AMOUNT = 95.00m;
 
         public ReportService(IUnitOfWork unitOfWork, IAuthService authService)
         {
@@ -672,5 +672,308 @@ namespace ASUDorms.Infrastructure.Services
 
             return (decimal)actualMeals / expectedMeals * 100;
         }
+
+
+
+
+        public async Task<DailyAbsenceReportDto> GetDailyAbsenceReportAsync(DateTime date)
+        {
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+
+            // Get all students
+            var students = await _unitOfWork.Students
+                .Query()
+                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
+                .ToListAsync();
+
+            // Get payment exemptions for this date
+            var paymentExemptions = await _unitOfWork.PaymentExemptions
+                .Query()
+                .Where(pe => pe.IsActive &&
+                            pe.StartDate.Date <= date.Date &&
+                            pe.EndDate.Date >= date.Date)
+                .ToListAsync();
+
+            // Filter eligible students
+            var eligibleStudents = students
+                .Where(s =>
+                {
+                    if (s.IsExemptFromFees) return true;
+                    if (s.HasOutstandingPayment)
+                        return paymentExemptions.Any(pe => pe.StudentNationalId == s.NationalId);
+                    return true;
+                })
+                .ToList();
+
+            // Get holidays for this date
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Where(h => h.StartDate.Date <= date.Date &&
+                           h.EndDate.Date >= date.Date &&
+                           !h.IsDeleted)
+                .ToListAsync();
+
+            var studentIdsOnHoliday = holidays.Select(h => h.StudentNationalId).Distinct().ToList();
+
+            // Students expected to eat (eligible and not on holiday)
+            var studentsExpectedToEat = eligibleStudents
+                .Where(s => !studentIdsOnHoliday.Contains(s.NationalId))
+                .ToList();
+
+            // Get meal transactions for this date
+            var mealTransactions = await _unitOfWork.MealTransactions
+                .Query()
+                .Where(m => m.Date.Date == date.Date && m.DormLocationId == dormLocationId)
+                .Include(m => m.MealType)
+                .ToListAsync();
+
+            // Group by building
+            var buildingGroups = new List<BuildingDailyAbsenceDto>();
+
+            foreach (var buildingGroup in studentsExpectedToEat.GroupBy(s => s.BuildingNumber))
+            {
+                var studentsWhoDidntEat = new List<StudentDailyAbsenceDto>();
+
+                foreach (var student in buildingGroup)
+                {
+                    var studentTransactions = mealTransactions
+                        .Where(m => m.StudentNationalId == student.NationalId)
+                        .ToList();
+
+                    var hadBreakfastDinner = studentTransactions
+                        .Any(m => m.MealType.Name == "BreakfastDinner");
+                    var hadLunch = studentTransactions
+                        .Any(m => m.MealType.Name == "Lunch");
+
+                    // If student missed any meal, add to report
+                    if (!hadBreakfastDinner || !hadLunch)
+                    {
+                        var missedCount = 0;
+                        if (!hadBreakfastDinner) missedCount++;
+                        if (!hadLunch) missedCount++;
+
+                        studentsWhoDidntEat.Add(new StudentDailyAbsenceDto
+                        {
+                            NationalId = student.NationalId,
+                            StudentId = student.StudentId,
+                            Name = $"{student.FirstName} {student.LastName}",
+                            BuildingNumber = student.BuildingNumber,
+                            RoomNumber = student.RoomNumber,
+                            Faculty = student.Faculty,
+                            MissedBreakfastDinner = !hadBreakfastDinner,
+                            MissedLunch = !hadLunch,
+                            TotalMissedMealsToday = missedCount
+                        });
+                    }
+                }
+
+                if (studentsWhoDidntEat.Any())
+                {
+                    buildingGroups.Add(new BuildingDailyAbsenceDto
+                    {
+                        BuildingNumber = buildingGroup.Key,
+                        TotalStudentsInBuilding = buildingGroup.Count(),
+                        StudentsWhoDidntEat = studentsWhoDidntEat.Count,
+                        Students = studentsWhoDidntEat.OrderBy(s => s.Name).ToList()
+                    });
+                }
+            }
+
+            // Calculate summary
+            var totalMissedBreakfastDinner = buildingGroups
+                .Sum(b => b.Students.Count(s => s.MissedBreakfastDinner));
+            var totalMissedLunch = buildingGroups
+                .Sum(b => b.Students.Count(s => s.MissedLunch));
+            var totalMissedMeals = totalMissedBreakfastDinner + totalMissedLunch;
+
+            return new DailyAbsenceReportDto
+            {
+                Date = date,
+                TotalStudents = students.Count,
+                StudentsOnHoliday = studentIdsOnHoliday.Count,
+                StudentsExpectedToEat = studentsExpectedToEat.Count,
+                StudentsWhoDidntEat = buildingGroups.Sum(b => b.StudentsWhoDidntEat),
+                BuildingGroups = buildingGroups.OrderBy(b => b.BuildingNumber).ToList(),
+                Summary = new DailyAbsenceSummaryDto
+                {
+                    TotalMissedBreakfastDinner = totalMissedBreakfastDinner,
+                    TotalMissedLunch = totalMissedLunch,
+                    TotalMissedMeals = totalMissedMeals,
+                    ExpectedPenalty = totalMissedMeals * MEAL_PENALTY_AMOUNT
+                }
+            };
+        }
+
+        public async Task<MonthlyAbsenceReportDto> GetMonthlyAbsenceReportAsync(
+            DateTime fromDate,
+            DateTime toDate)
+        {
+            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+
+            // Get all students
+            var students = await _unitOfWork.Students
+                .Query()
+                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
+                .ToListAsync();
+
+            // Get payment exemptions
+            var paymentExemptions = await _unitOfWork.PaymentExemptions
+                .Query()
+                .Where(pe => pe.IsActive &&
+                            ((pe.StartDate.Date <= toDate.Date && pe.EndDate.Date >= fromDate.Date)))
+                .ToListAsync();
+
+            // Get meal transactions
+            var mealTransactions = await _unitOfWork.MealTransactions
+                .Query()
+                .Where(m => m.Date.Date >= fromDate.Date &&
+                           m.Date.Date <= toDate.Date &&
+                           m.DormLocationId == dormLocationId)
+                .Include(m => m.MealType)
+                .ToListAsync();
+
+            // Get holidays
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Where(h => h.StartDate.Date <= toDate.Date &&
+                           h.EndDate.Date >= fromDate.Date &&
+                           !h.IsDeleted)
+                .ToListAsync();
+
+            var buildingGroups = new List<BuildingMonthlyAbsenceDto>();
+
+            foreach (var buildingGroup in students.GroupBy(s => s.BuildingNumber))
+            {
+                var studentsWithAbsences = new List<StudentMonthlyAbsenceDto>();
+
+                foreach (var student in buildingGroup)
+                {
+                    // Check eligibility
+                    bool isEligibleForPeriod = true;
+                    if (!student.IsExemptFromFees && student.HasOutstandingPayment)
+                    {
+                        isEligibleForPeriod = paymentExemptions
+                            .Any(pe => pe.StudentNationalId == student.NationalId);
+                    }
+
+                    if (!isEligibleForPeriod) continue;
+
+                    var studentHolidays = holidays
+                        .Where(h => h.StudentNationalId == student.NationalId)
+                        .ToList();
+
+                    var studentTransactions = mealTransactions
+                        .Where(m => m.StudentNationalId == student.NationalId)
+                        .ToList();
+
+                    int missedBreakfastDinnerCount = 0;
+                    int missedLunchCount = 0;
+                    var missedDates = new List<DateTime>();
+                    int daysOnHoliday = 0;
+
+                    // Check each day
+                    for (var date = fromDate.Date; date <= toDate.Date; date = date.AddDays(1))
+                    {
+                        var wasOnHoliday = studentHolidays
+                            .Any(h => h.StartDate.Date <= date && h.EndDate.Date >= date);
+
+                        if (wasOnHoliday)
+                        {
+                            daysOnHoliday++;
+                            continue;
+                        }
+
+                        var dayTransactions = studentTransactions
+                            .Where(m => m.Date.Date == date)
+                            .ToList();
+
+                        bool missedAnyMeal = false;
+
+                        if (!dayTransactions.Any(m => m.MealType.Name == "BreakfastDinner"))
+                        {
+                            missedBreakfastDinnerCount++;
+                            missedAnyMeal = true;
+                        }
+
+                        if (!dayTransactions.Any(m => m.MealType.Name == "Lunch"))
+                        {
+                            missedLunchCount++;
+                            missedAnyMeal = true;
+                        }
+
+                        if (missedAnyMeal && !missedDates.Contains(date))
+                        {
+                            missedDates.Add(date);
+                        }
+                    }
+
+                    var totalMissedMeals = missedBreakfastDinnerCount + missedLunchCount;
+
+                    if (totalMissedMeals > 0)
+                    {
+                        studentsWithAbsences.Add(new StudentMonthlyAbsenceDto
+                        {
+                            NationalId = student.NationalId,
+                            StudentId = student.StudentId,
+                            Name = $"{student.FirstName} {student.LastName}",
+                            BuildingNumber = student.BuildingNumber,
+                            RoomNumber = student.RoomNumber,
+                            Faculty = student.Faculty,
+                            TotalMissedMeals = totalMissedMeals,
+                            MissedBreakfastDinnerCount = missedBreakfastDinnerCount,
+                            MissedLunchCount = missedLunchCount,
+                            MissedDates = missedDates.OrderBy(d => d).ToList(),
+                            DaysOnHoliday = daysOnHoliday,
+                            TotalPenalty = totalMissedMeals * MEAL_PENALTY_AMOUNT
+                        });
+                    }
+                }
+
+                if (studentsWithAbsences.Any())
+                {
+                    buildingGroups.Add(new BuildingMonthlyAbsenceDto
+                    {
+                        BuildingNumber = buildingGroup.Key,
+                        TotalStudents = buildingGroup.Count(),
+                        Students = studentsWithAbsences
+                            .OrderByDescending(s => s.TotalMissedMeals)
+                            .ToList()
+                    });
+                }
+            }
+
+            var totalDays = (toDate.Date - fromDate.Date).Days + 1;
+
+            return new MonthlyAbsenceReportDto
+            {
+                FromDate = fromDate,
+                ToDate = toDate,
+                TotalDays = totalDays,
+                BuildingGroups = buildingGroups.OrderBy(b => b.BuildingNumber).ToList(),
+                Summary = new MonthlyAbsenceSummaryDto
+                {
+                    TotalStudentsWithAbsences = buildingGroups.Sum(b => b.Students.Count),
+                    TotalMissedMeals = buildingGroups.Sum(b => b.Students.Sum(s => s.TotalMissedMeals)),
+                    TotalMissedBreakfastDinner = buildingGroups.Sum(b => b.Students.Sum(s => s.MissedBreakfastDinnerCount)),
+                    TotalMissedLunch = buildingGroups.Sum(b => b.Students.Sum(s => s.MissedLunchCount)),
+                    TotalPenalty = buildingGroups.Sum(b => b.Students.Sum(s => s.TotalPenalty))
+                }
+            };
+        }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
 }

@@ -29,7 +29,9 @@ namespace ASUDorms.Domain.Enums
     public enum UserRole
     {
         Registration = 1,
-        Restaurant = 2
+        Restaurant = 2,
+        User = 3 
+
     }
     public enum PaymentType
     {

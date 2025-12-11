@@ -9,7 +9,7 @@ namespace ASUDorms.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Registration")]
+    [Authorize(Roles = "Registration,User")]
     public class StudentsController : ControllerBase
     {
         private readonly IStudentService _studentService;
@@ -58,6 +58,7 @@ namespace ASUDorms.WebAPI.Controllers
                 return StatusCode(500, new { message = "An error occurred", details = ex.Message });
             }
         }
+        [Authorize(Roles = "Registration,User")]
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id)
@@ -78,6 +79,8 @@ namespace ASUDorms.WebAPI.Controllers
         }
 
         [HttpGet]
+        [Authorize(Roles = "Registration,User")]
+
         public async Task<IActionResult> GetAll()
         {
             try
