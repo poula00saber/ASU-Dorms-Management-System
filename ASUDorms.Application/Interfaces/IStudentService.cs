@@ -16,5 +16,7 @@ namespace ASUDorms.Application.Interfaces
         Task<List<StudentDto>> GetAllStudentsAsync();
         Task DeleteStudentAsync(string studentId);
         Task<string> UploadPhotoAsync(IFormFile file, string studentId);
+        Task<List<StudentDto>> GetStudentsByDormLocationAsync(int dormLocationId);
+
     }
 }

@@ -21,6 +21,46 @@ namespace ASUDorms.WebAPI.Controllers
             _logger = logger;
         }
 
+
+
+
+
+        [HttpGet("print-data")]
+        [Authorize(Roles = "Registration")]
+        public async Task<IActionResult> GetStudentsForPrinting([FromQuery] int? dormLocationId = null)
+        {
+            try
+            {
+                _logger.LogInformation("Getting students for printing...");
+
+                List<StudentDto> students;
+
+                if (dormLocationId.HasValue && dormLocationId.Value > 0)
+                {
+                    // Get students for specific dorm location
+                    students = await _studentService.GetStudentsByDormLocationAsync(dormLocationId.Value);
+                }
+                else
+                {
+                    // Get all students from current user's dorm location
+                    students = await _studentService.GetAllStudentsAsync();
+                }
+
+                _logger.LogInformation($"Returned {students.Count} students for printing");
+                return Ok(students);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting students for printing");
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+
+
+
+
+
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateStudentDto dto)
         {

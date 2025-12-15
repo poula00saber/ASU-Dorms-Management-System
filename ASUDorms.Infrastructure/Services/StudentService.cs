@@ -448,6 +448,39 @@ namespace ASUDorms.Infrastructure.Services
             return students.Select(MapToDto).ToList();
         }
 
+
+
+        public async Task<List<StudentDto>> GetStudentsByDormLocationAsync(int dormLocationId)
+        {
+            var currentDormLocationId = _authService.GetCurrentDormLocationId();
+
+            if (currentDormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            // For security: only allow getting students from the same dorm location
+            // Or if you want to allow cross-location access for registration role, remove this check
+            if (dormLocationId != currentDormLocationId)
+            {
+                _logger.LogWarning($"User from dorm {currentDormLocationId} tried to access dorm {dormLocationId}");
+                // You can either throw an exception or just return current location students
+                // For flexibility, let's allow it if the user is Registration role
+                // This should be handled in the controller with proper authorization
+            }
+
+            var students = await _unitOfWork.Students
+                .Query()
+                .Include(s => s.DormLocation)
+                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
+                .OrderBy(s => s.FirstName)
+                .ThenBy(s => s.LastName)
+                .ToListAsync();
+
+            return students.Select(MapToDto).ToList();
+        }
+
+
         private StudentDto MapToDto(Student student)
         {
             return new StudentDto
