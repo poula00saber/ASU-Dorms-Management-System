@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿// Add this property to your DormLocation entity class
+
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ASUDorms.Domain.Entities
 {
@@ -21,9 +18,16 @@ namespace ASUDorms.Domain.Entities
 
         public bool IsActive { get; set; } = true;
 
+        // NEW PROPERTY - Add this
+        public bool AllowCombinedMealScan { get; set; } = false;
+
         // Navigation Properties
         public virtual ICollection<AppUser> Users { get; set; }
         public virtual ICollection<Student> Students { get; set; }
         public virtual ICollection<MealTransaction> MealTransactions { get; set; }
     }
 }
+
+// After adding this property, you'll need to create a migration:
+// Add-Migration AddAllowCombinedMealScanToDormLocation
+// Update-Database
