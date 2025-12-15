@@ -76,7 +76,7 @@ namespace ASUDorms.Infrastructure.Services
 
             // 4. Check if time is valid for combined meal (Lunch time: 1:00 PM - 9:00 PM)
             var currentTime = now.TimeOfDay;
-            var startTime = new TimeSpan(11, 0, 0);  // 1:00 PM
+            var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
             var endTime = new TimeSpan(21, 0, 0);    // 9:00 PM
 
             if (currentTime < startTime || currentTime > endTime)
@@ -346,10 +346,10 @@ namespace ASUDorms.Infrastructure.Services
         {
             var currentTime = DateTime.Now.TimeOfDay;
 
-            // MealTypeId 1: Breakfast+Dinner (ONLY 6:00 PM - 9:00 PM)
+            // MealTypeId 1: Breakfast+Dinner (ONLY 5:00 PM - 9:00 PM)
             if (mealTypeId == 1)
             {
-                var eveningStart = new TimeSpan(18, 0, 0);  // 6:00 PM
+                var eveningStart = new TimeSpan(17, 0, 0);  // 5:00 PM
                 var eveningEnd = new TimeSpan(21, 0, 0);    // 9:00 PM
 
                 return currentTime >= eveningStart && currentTime <= eveningEnd;
