@@ -1,12 +1,7 @@
 ﻿using ASUDorms.Domain.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection.Emit;
-using System.Text;
-using System.Threading.Tasks;
+using System.Security.Claims;
 
 namespace ASUDorms.Infrastructure.Data
 {
@@ -37,6 +32,8 @@ namespace ASUDorms.Infrastructure.Data
             // Apply configurations
             modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
+           
+
             // Global query filter for multi-tenancy
             modelBuilder.Entity<Student>().HasQueryFilter(s =>
                 !s.IsDeleted &&
@@ -55,17 +52,41 @@ namespace ASUDorms.Infrastructure.Data
             // Indexes for performance
             modelBuilder.Entity<Student>()
                 .HasIndex(s => new { s.StudentId, s.DormLocationId })
-                .IsUnique();
+                .IsUnique()
+                .HasDatabaseName("IX_Students_StudentId_DormLocationId");
 
             modelBuilder.Entity<Student>()
-                .HasIndex(s => s.NationalId);
+                .HasIndex(s => s.NationalId)
+                .IsUnique()
+                .HasDatabaseName("IX_Students_NationalId");
+
+            // Critical for scanner!
+            modelBuilder.Entity<MealTransaction>()
+                .HasIndex(m => new { m.StudentNationalId, m.Date, m.MealTypeId })
+                .HasDatabaseName("IX_MealTransactions_Student_Date_MealType");
 
             modelBuilder.Entity<MealTransaction>()
-                .HasIndex(m => new { m.StudentNationalId, m.Date, m.MealTypeId });
-            modelBuilder.Entity<Holiday>()
-                .HasKey(h=>h.Id);
+                .HasIndex(m => m.DormLocationId)
+                .HasDatabaseName("IX_MealTransactions_DormLocationId");
 
-           
+            modelBuilder.Entity<MealTransaction>()
+                .HasIndex(m => m.StudentNationalId)
+                .HasDatabaseName("IX_MealTransactions_StudentNationalId");
+
+            modelBuilder.Entity<MealTransaction>()
+                .HasIndex(m => m.Date)
+                .HasDatabaseName("IX_MealTransactions_Date");
+
+            modelBuilder.Entity<Holiday>()
+                .HasKey(h => h.Id);
+
+            modelBuilder.Entity<Holiday>()
+                .HasIndex(h => h.StudentNationalId)
+                .HasDatabaseName("IX_Holidays_StudentNationalId");
+
+            modelBuilder.Entity<Holiday>()
+                .HasIndex(h => new { h.StartDate, h.EndDate })
+                .HasDatabaseName("IX_Holidays_Dates");
         }
 
         private int GetCurrentDormLocationId()
@@ -84,19 +105,23 @@ namespace ASUDorms.Infrastructure.Data
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            UpdateTimestamps();
+            var currentUsername = GetCurrentUsername();
+            UpdateAuditFields(currentUsername);
             return base.SaveChangesAsync(cancellationToken);
         }
 
-        private void UpdateTimestamps()
+        private void UpdateAuditFields(string currentUsername)
         {
             var entries = ChangeTracker.Entries()
-                .Where(e => e.Entity is BaseEntity &&
+                .Where(e => e.Entity is AuditableEntity &&
                     (e.State == EntityState.Added || e.State == EntityState.Modified));
 
             foreach (var entry in entries)
             {
-                var entity = (BaseEntity)entry.Entity;
+                var entity = (AuditableEntity)entry.Entity;
+
+                // Always update LastModifiedBy for both Add and Update
+                entity.LastModifiedBy = currentUsername;
 
                 if (entry.State == EntityState.Added)
                 {
@@ -107,6 +132,17 @@ namespace ASUDorms.Infrastructure.Data
                     entity.UpdatedAt = DateTime.UtcNow;
                 }
             }
+        }
+
+        private string GetCurrentUsername()
+        {
+            var httpContext = _httpContextAccessor?.HttpContext;
+            if (httpContext == null) return "System";
+
+            return httpContext.User.FindFirst(ClaimTypes.Name)?.Value
+                   ?? httpContext.User.FindFirst("name")?.Value
+                   ?? httpContext.User.Identity?.Name
+                   ?? "Unknown";
         }
     }
 }

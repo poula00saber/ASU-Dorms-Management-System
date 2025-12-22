@@ -1,9 +1,5 @@
 ﻿using ASUDorms.Domain.Enums;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ASUDorms.Application.DTOs.Payments
 {
@@ -23,7 +19,7 @@ namespace ASUDorms.Application.DTOs.Payments
         public int? Year { get; set; }
         public int? MissedMealsCount { get; set; }
         public string Notes { get; set; }
-        public string ProcessedBy { get; set; }
+        public string ModifiedBy { get; set; } // Changed from ProcessedBy
         public DateTime CreatedAt { get; set; }
     }
 }

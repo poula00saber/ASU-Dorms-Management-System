@@ -106,6 +106,7 @@ namespace ASUDorms.Infrastructure.Services
                 MissedMealsCount = 0,
                 HasOutstandingPayment = false,
                 OutstandingAmount = 0
+                // LastModifiedBy will be set automatically by DbContext when SaveChangesAsync is called
             };
 
             await _unitOfWork.Students.AddAsync(student);
@@ -115,7 +116,6 @@ namespace ASUDorms.Infrastructure.Services
 
             return MapToDto(student);
         }
-
         public async Task<StudentDto> UpdateStudentAsync(string studentId, CreateStudentDto dto)
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
@@ -521,7 +521,11 @@ namespace ASUDorms.Infrastructure.Services
                 FatherPhone = student.FatherPhone,
                 GuardianName = student.GuardianName,
                 GuardianRelationship = student.GuardianRelationship,
-                GuardianPhone = student.GuardianPhone
+                GuardianPhone = student.GuardianPhone,
+                // Add audit fields
+                CreatedAt = student.CreatedAt,
+                UpdatedAt = student.UpdatedAt,
+                ModifiedBy = student.LastModifiedBy
             };
         }
     }

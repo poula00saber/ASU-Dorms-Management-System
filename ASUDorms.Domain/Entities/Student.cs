@@ -6,7 +6,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ASUDorms.Domain.Entities
 {
-    public class Student : BaseEntity
+    public class Student : AuditableEntity
     {
         [Required]
         [MaxLength(25)]

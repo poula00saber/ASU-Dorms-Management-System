@@ -53,7 +53,7 @@ namespace ASUDorms.Infrastructure.Services
                 Month = dto.Month,
                 Year = dto.Year,
                 MissedMealsCount = dto.MissedMealsCount,
-                ProcessedBy = await GetCurrentUserNameAsync()
+                // ProcessedBy REMOVED - LastModifiedBy will be set automatically by DbContext
             };
 
             // Update student's outstanding payment status
@@ -279,7 +279,7 @@ namespace ASUDorms.Infrastructure.Services
                 EndDate = dto.EndDate.Date,
                 Notes = dto.Notes,
                 IsActive = true,
-                ApprovedBy = dto.ApprovedBy,
+                // ApprovedBy REMOVED - LastModifiedBy will be set automatically by DbContext
                 ApprovedDate = DateTime.UtcNow
             };
 
@@ -322,7 +322,7 @@ namespace ASUDorms.Infrastructure.Services
             exemption.StartDate = dto.StartDate.Date;
             exemption.EndDate = dto.EndDate.Date;
             exemption.Notes = dto.Notes;
-            exemption.ApprovedBy = dto.ApprovedBy;
+            // ApprovedBy REMOVED - LastModifiedBy will be updated automatically by DbContext
             exemption.UpdatedAt = DateTime.UtcNow;
 
             _unitOfWork.PaymentExemptions.Update(exemption);
@@ -475,12 +475,6 @@ namespace ASUDorms.Infrastructure.Services
             }
         }
 
-        private async Task<string> GetCurrentUserNameAsync()
-        {
-            // Implement based on your authentication system
-            return "System User"; // Replace with actual user name from auth context
-        }
-
         private async Task UpdateStudentPaymentStatus(Student student, decimal paymentAmount)
         {
             if (student.OutstandingAmount >= paymentAmount)
@@ -515,7 +509,7 @@ namespace ASUDorms.Infrastructure.Services
                 Month = payment.Month,
                 Year = payment.Year,
                 MissedMealsCount = payment.MissedMealsCount,
-                ProcessedBy = payment.ProcessedBy,
+                ModifiedBy = payment.LastModifiedBy, // Only this field
                 CreatedAt = payment.CreatedAt
             };
         }
@@ -533,7 +527,7 @@ namespace ASUDorms.Infrastructure.Services
                 EndDate = exemption.EndDate,
                 Notes = exemption.Notes,
                 IsActive = exemption.IsActive,
-                ApprovedBy = exemption.ApprovedBy,
+                ModifiedBy = exemption.LastModifiedBy, // Only this field
                 ApprovedDate = exemption.ApprovedDate,
                 CreatedAt = exemption.CreatedAt,
                 UpdatedAt = exemption.UpdatedAt

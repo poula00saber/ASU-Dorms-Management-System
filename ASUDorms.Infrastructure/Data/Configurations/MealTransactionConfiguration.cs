@@ -32,6 +32,35 @@ namespace ASUDorms.Infrastructure.Data.Configurations
                 .WithMany()
                 .HasForeignKey(m => m.ScannedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+
+
+            // Critical for scanner duplicate check (MOST IMPORTANT!)
+            builder.HasIndex(m => new { m.StudentNationalId, m.Date, m.MealTypeId })
+                .HasDatabaseName("IX_MealTransactions_Student_Date_MealType")
+                .IsUnique(false); // Not unique since multiple scans per day
+
+            // For filtering by dorm location (used in global query filter)
+            builder.HasIndex(m => m.DormLocationId)
+                .HasDatabaseName("IX_MealTransactions_DormLocationId");
+
+            // For searching by student
+            builder.HasIndex(m => m.StudentNationalId)
+                .HasDatabaseName("IX_MealTransactions_StudentNationalId");
+
+            // For date-based queries
+            builder.HasIndex(m => m.Date)
+                .HasDatabaseName("IX_MealTransactions_Date");
+
+            // For time-based queries
+            builder.HasIndex(m => m.Time)
+                .HasDatabaseName("IX_MealTransactions_Time");
+
+            // For scanner user tracking
+            builder.HasIndex(m => m.ScannedByUserId)
+                .HasDatabaseName("IX_MealTransactions_ScannedByUserId");
+
+
         }
     }
 }

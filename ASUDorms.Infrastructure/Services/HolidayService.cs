@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace ASUDorms.Infrastructure.Services
@@ -35,7 +34,7 @@ namespace ASUDorms.Infrastructure.Services
                 throw new ArgumentException("Start date cannot be in the past");
             }
 
-            // Find student by NationalId (primary key for Student)
+            // Find student by NationalId
             var student = await _unitOfWork.Students
                 .Query()
                 .FirstOrDefaultAsync(s => s.NationalId == dto.StudentNationalId && !s.IsDeleted);
@@ -45,7 +44,7 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException($"Student with National ID '{dto.StudentNationalId}' not found or is deleted");
             }
 
-            // Check for date overlaps with active holidays only
+            // Check for date overlaps
             var existingActiveHolidays = await _unitOfWork.Holidays
                 .Query()
                 .Where(h => h.StudentNationalId == dto.StudentNationalId && !h.IsDeleted)
@@ -59,55 +58,25 @@ namespace ASUDorms.Infrastructure.Services
                 throw new InvalidOperationException("Holiday dates overlap with an existing active holiday for this student");
             }
 
+            // Get current user name from auth service
+            var currentUser = await _authService.GetCurrentUserAsync();
+            var modifiedBy = currentUser?.Username ?? "System";
+
             var holiday = new Holiday
             {
-                StudentNationalId = dto.StudentNationalId, // Foreign key
-                StudentId = student.StudentId, // For easy lookup by StudentId
+                StudentNationalId = dto.StudentNationalId,
+                StudentId = student.StudentId,
                 StartDate = dto.StartDate.Date,
                 EndDate = dto.EndDate.Date,
+
+                // Set single field for who modified
+                LastModifiedBy = modifiedBy
             };
 
             await _unitOfWork.Holidays.AddAsync(holiday);
             await _unitOfWork.SaveChangesAsync();
 
             return MapToDto(holiday, student);
-        }
-
-        // Get holidays by StudentId (for frontend display)
-        public async Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId)
-        {
-            // First find the student by StudentId to get their NationalId
-            var student = await _unitOfWork.Students
-                .Query()
-                .FirstOrDefaultAsync(s => s.StudentId == studentId && !s.IsDeleted);
-
-            if (student == null)
-            {
-                throw new KeyNotFoundException($"Student with Student ID '{studentId}' not found");
-            }
-
-            // Then get holidays by NationalId (foreign key)
-            var holidays = await _unitOfWork.Holidays
-                .Query()
-                .Include(h => h.Student)
-                .Where(h => h.StudentNationalId == student.NationalId && !h.IsDeleted)
-                .OrderByDescending(h => h.StartDate)
-                .ToListAsync();
-
-            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
-        }
-
-        // Alternative: Get holidays directly by NationalId
-        public async Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId)
-        {
-            var holidays = await _unitOfWork.Holidays
-                .Query()
-                .Include(h => h.Student)
-                .Where(h => h.StudentNationalId == nationalId && !h.IsDeleted)
-                .OrderByDescending(h => h.StartDate)
-                .ToListAsync();
-
-            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
         }
 
         public async Task DeleteHolidayAsync(int holidayId)
@@ -121,6 +90,10 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException($"Active holiday with ID {holidayId} not found");
             }
 
+            // Get current user name for audit
+            var currentUser = await _authService.GetCurrentUserAsync();
+            holiday.LastModifiedBy = currentUser?.Username ?? "System";
+
             // Soft delete
             holiday.IsDeleted = true;
 
@@ -128,16 +101,55 @@ namespace ASUDorms.Infrastructure.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
+        // Get holidays by StudentId
+        public async Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId)
+        {
+            // Find the student by StudentId
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.StudentId == studentId && !s.IsDeleted);
+
+            if (student == null)
+            {
+                throw new KeyNotFoundException($"Student with Student ID '{studentId}' not found");
+            }
+
+            // Get holidays
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.StudentNationalId == student.NationalId && !h.IsDeleted)
+                .OrderByDescending(h => h.StartDate)
+                .ToListAsync();
+
+            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
+        // Get holidays by NationalId
+        public async Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId)
+        {
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.StudentNationalId == nationalId && !h.IsDeleted)
+                .OrderByDescending(h => h.StartDate)
+                .ToListAsync();
+
+            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
         private HolidayDto MapToDto(Holiday holiday, Student student = null)
         {
             return new HolidayDto
             {
                 Id = holiday.Id,
-                StudentId = holiday.StudentId, // Include StudentId for frontend
+                StudentId = holiday.StudentId,
                 StudentNationalId = holiday.StudentNationalId,
                 StartDate = holiday.StartDate,
                 EndDate = holiday.EndDate,
-                StudentName = student != null ? $"{student.FirstName} {student.LastName}" : null
+                StudentName = student != null ? $"{student.FirstName} {student.LastName}" : null,
+                ModifiedBy = holiday.LastModifiedBy,
+                LastModifiedDate = holiday.UpdatedAt ?? holiday.CreatedAt
             };
         }
     }

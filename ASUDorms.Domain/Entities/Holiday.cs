@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace ASUDorms.Domain.Entities
 {
-    public class Holiday : BaseEntity
+    public class Holiday : AuditableEntity
     {
         [Key]
         public int Id { get; set; }

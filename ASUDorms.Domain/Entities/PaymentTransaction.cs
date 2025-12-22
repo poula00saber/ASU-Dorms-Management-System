@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace ASUDorms.Domain.Entities
 {
-    public class PaymentTransaction : BaseEntity
+    public class PaymentTransaction : AuditableEntity
     {
         [Key]
         public int Id { get; set; }
@@ -44,9 +44,6 @@ namespace ASUDorms.Domain.Entities
 
         // For missed meal payments
         public int? MissedMealsCount { get; set; }
-
-        [MaxLength(100)]
-        public string ProcessedBy { get; set; } // اسم الموظف
 
         public virtual Student Student { get; set; }
     }

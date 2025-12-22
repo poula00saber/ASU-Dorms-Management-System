@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ASUDorms.Application.DTOs.Payments
 {
@@ -17,7 +13,7 @@ namespace ASUDorms.Application.DTOs.Payments
         public DateTime EndDate { get; set; }
         public string Notes { get; set; }
         public bool IsActive { get; set; }
-        public string ApprovedBy { get; set; }
+        public string ModifiedBy { get; set; } // Changed from ApprovedBy
         public DateTime ApprovedDate { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

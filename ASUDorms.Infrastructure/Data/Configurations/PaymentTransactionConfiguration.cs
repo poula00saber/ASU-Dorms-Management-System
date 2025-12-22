@@ -18,6 +18,8 @@ namespace ASUDorms.Infrastructure.Data.Configurations
                 .HasForeignKey(pt => pt.StudentNationalId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+
+
             builder.Property(pt => pt.PaymentType)
                 .HasConversion<string>();
 

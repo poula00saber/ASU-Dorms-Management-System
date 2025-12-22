@@ -11,7 +11,7 @@ namespace ASUDorms.Domain.Entities
     /// تصريحات - Payment Exemptions/Extensions
     /// Allows students to have meals even with outstanding payments
     /// </summary>
-    public class PaymentExemption : BaseEntity
+    public class PaymentExemption : AuditableEntity
     {
         [Key]
         public int Id { get; set; }
@@ -37,9 +37,6 @@ namespace ASUDorms.Domain.Entities
         public string? Notes { get; set; }
 
         public bool IsActive { get; set; } = true;
-
-        [MaxLength(100)]
-        public string ApprovedBy { get; set; } // اسم الموظف الذي وافق
 
         public DateTime ApprovedDate { get; set; }
 
