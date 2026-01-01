@@ -56,6 +56,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             },
             OnMessageReceived = context =>
             {
+                var path = context.HttpContext.Request.Path.Value;
+
+                // Ignore non-API requests
+                if (!path.StartsWith("/api"))
+                    return Task.CompletedTask;
+
                 var token = context.Request.Headers["Authorization"].FirstOrDefault();
                 if (!string.IsNullOrEmpty(token))
                 {
@@ -63,10 +69,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
                 else
                 {
-                    Console.WriteLine("⚠️ NO TOKEN IN REQUEST");
+                    Console.WriteLine("⚠️ NO TOKEN IN API REQUEST");
                 }
+
                 return Task.CompletedTask;
             }
+
         };
     });
 
