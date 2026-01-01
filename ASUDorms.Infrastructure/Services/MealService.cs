@@ -3,6 +3,7 @@ using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -13,16 +14,19 @@ namespace ASUDorms.Infrastructure.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthService _authService;
+        private readonly ILogger<MealService> _logger;
 
-        public MealService(IUnitOfWork unitOfWork, IAuthService authService)
+        public MealService(IUnitOfWork unitOfWork, IAuthService authService, ILogger<MealService> logger)
         {
             _unitOfWork = unitOfWork;
             _authService = authService;
+            _logger = logger;
         }
 
-        // NEW METHOD - Scan both meals together
         public async Task<MealScanResultDto> ScanCombinedMealAsync(MealScanRequestDto request)
         {
+            var nationalIdHash = HashString(request.NationalId);
+
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
             var today = DateTime.Today;
             var now = DateTime.Now;
@@ -31,6 +35,8 @@ namespace ASUDorms.Infrastructure.Services
             var dormLocation = await _unitOfWork.DormLocations.GetByIdAsync(dormLocationId);
             if (dormLocation == null || !dormLocation.AllowCombinedMealScan)
             {
+                _logger.LogWarning("Combined scan not allowed: DormLocationId={DormLocationId}, NationalIdHash={NationalIdHash}",
+                    dormLocationId, nationalIdHash);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -38,13 +44,14 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 1. Find student by national ID
+            // Find student by national ID
             var student = await _unitOfWork.Students.Query()
                 .Where(s => s.NationalId == request.NationalId)
                 .FirstOrDefaultAsync();
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found: NationalIdHash={NationalIdHash}", nationalIdHash);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -52,9 +59,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 2. Check if student is deleted
             if (student.IsDeleted)
             {
+                _logger.LogWarning("Student account inactive: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                    student.StudentId, nationalIdHash);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -63,9 +71,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 3. Check if student belongs to same dorm location
             if (student.DormLocationId != dormLocationId)
             {
+                _logger.LogWarning("Wrong dorm location: StudentId={StudentId}, StudentDormLocation={StudentDormLocation}, CurrentDormLocation={CurrentDormLocation}",
+                    student.StudentId, student.DormLocationId, dormLocationId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -74,13 +83,15 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 4. Check if time is valid for combined meal (Lunch time: 1:00 PM - 9:00 PM)
+            // Check if time is valid for combined meal (Lunch time: 1:00 PM - 9:00 PM)
             var currentTime = now.TimeOfDay;
-            var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
-            var endTime = new TimeSpan(21, 0, 0);    // 9:00 PM
+            var startTime = new TimeSpan(13, 0, 0);
+            var endTime = new TimeSpan(21, 0, 0);
 
             if (currentTime < startTime || currentTime > endTime)
             {
+                _logger.LogWarning("Combined scan outside allowed time: CurrentTime={CurrentTime}, StudentId={StudentId}",
+                    currentTime, student.StudentId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -89,7 +100,7 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 5. Check if student is on holiday today
+            // Check if student is on holiday today
             var isOnHoliday = await _unitOfWork.Holidays.Query()
                 .AnyAsync(h => h.StudentNationalId == student.NationalId &&
                               h.StartDate.Date <= today &&
@@ -98,6 +109,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (isOnHoliday)
             {
+                _logger.LogInformation("Student on holiday: StudentId={StudentId}", student.StudentId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -106,14 +118,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 6. Payment and Exemption Logic
+            // Payment and Exemption Logic
             if (student.HasOutstandingPayment)
             {
-                if (student.IsExemptFromFees)
-                {
-                    // Allow meal - student is exempt from all fees
-                }
-                else
+                if (!student.IsExemptFromFees)
                 {
                     var hasValidExemption = await _unitOfWork.PaymentExemptions.Query()
                         .AnyAsync(pe => pe.StudentNationalId == student.NationalId &&
@@ -123,6 +131,7 @@ namespace ASUDorms.Infrastructure.Services
 
                     if (!hasValidExemption)
                     {
+                        _logger.LogWarning("Outstanding payment: StudentId={StudentId}", student.StudentId);
                         return new MealScanResultDto
                         {
                             Success = false,
@@ -133,7 +142,7 @@ namespace ASUDorms.Infrastructure.Services
                 }
             }
 
-            // 7. Check if student already received meals today
+            // Check if student already received meals today
             var existingTransactions = await _unitOfWork.MealTransactions.Query()
                 .Where(mt => mt.StudentNationalId == student.NationalId &&
                            mt.Date.Date == today)
@@ -144,6 +153,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (hasBreakfastDinner && hasLunch)
             {
+                _logger.LogInformation("All meals already received: StudentId={StudentId}", student.StudentId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -152,7 +162,7 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 8. Create meal transactions for both meals
+            // Create meal transactions for both meals
             var transactionsCreated = 0;
 
             if (!hasBreakfastDinner)
@@ -161,7 +171,7 @@ namespace ASUDorms.Infrastructure.Services
                 {
                     StudentNationalId = student.NationalId,
                     StudentId = student.StudentId,
-                    MealTypeId = 1, // BreakfastDinner
+                    MealTypeId = 1,
                     Date = now,
                     DormLocationId = dormLocationId,
                     ScannedByUserId = dormLocationId,
@@ -177,7 +187,7 @@ namespace ASUDorms.Infrastructure.Services
                 {
                     StudentNationalId = student.NationalId,
                     StudentId = student.StudentId,
-                    MealTypeId = 2, // Lunch
+                    MealTypeId = 2,
                     Date = now,
                     DormLocationId = dormLocationId,
                     ScannedByUserId = dormLocationId,
@@ -189,7 +199,6 @@ namespace ASUDorms.Infrastructure.Services
 
             await _unitOfWork.SaveChangesAsync();
 
-            // 9. Return success with appropriate message
             var message = transactionsCreated == 2
                 ? "تم مسح الوجبتين بنجاح (الإفطار/العشاء + الغداء)"
                 : transactionsCreated == 1 && !hasBreakfastDinner
@@ -206,17 +215,20 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<MealScanResultDto> ScanMealAsync(MealScanRequestDto request)
         {
+            var nationalIdHash = HashString(request.NationalId);
+
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
             var today = DateTime.Today;
             var now = DateTime.Now;
 
-            // 1. Find student by national ID
+            // Find student by national ID
             var student = await _unitOfWork.Students.Query()
                 .Where(s => s.NationalId == request.NationalId)
                 .FirstOrDefaultAsync();
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found: NationalIdHash={NationalIdHash}", nationalIdHash);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -224,9 +236,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 2. Check if student is deleted
             if (student.IsDeleted)
             {
+                _logger.LogWarning("Student account inactive: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                    student.StudentId, nationalIdHash);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -235,9 +248,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 3. Check if student belongs to same dorm location
             if (student.DormLocationId != dormLocationId)
             {
+                _logger.LogWarning("Wrong dorm location: StudentId={StudentId}, StudentDormLocation={StudentDormLocation}, CurrentDormLocation={CurrentDormLocation}",
+                    student.StudentId, student.DormLocationId, dormLocationId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -246,9 +260,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 4. Check if time is valid for this meal type
             if (!await IsTimeValidForMealTypeAsync(request.MealTypeId))
             {
+                _logger.LogWarning("Meal time invalid: MealType={MealType}, StudentId={StudentId}",
+                    request.MealTypeId, student.StudentId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -257,7 +272,7 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 5. Check if student is on holiday today
+            // Check if student is on holiday today
             var isOnHoliday = await _unitOfWork.Holidays.Query()
                 .AnyAsync(h => h.StudentNationalId == student.NationalId &&
                               h.StartDate.Date <= today &&
@@ -266,6 +281,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (isOnHoliday)
             {
+                _logger.LogInformation("Student on holiday: StudentId={StudentId}", student.StudentId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -274,14 +290,10 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 6. Payment and Exemption Logic
+            // Payment and Exemption Logic
             if (student.HasOutstandingPayment)
             {
-                if (student.IsExemptFromFees)
-                {
-                    // Allow meal - student is exempt from all fees
-                }
-                else
+                if (!student.IsExemptFromFees)
                 {
                     var hasValidExemption = await _unitOfWork.PaymentExemptions.Query()
                         .AnyAsync(pe => pe.StudentNationalId == student.NationalId &&
@@ -291,6 +303,7 @@ namespace ASUDorms.Infrastructure.Services
 
                     if (!hasValidExemption)
                     {
+                        _logger.LogWarning("Outstanding payment: StudentId={StudentId}", student.StudentId);
                         return new MealScanResultDto
                         {
                             Success = false,
@@ -301,7 +314,7 @@ namespace ASUDorms.Infrastructure.Services
                 }
             }
 
-            // 7. Check if student already received this meal today
+            // Check if student already received this meal today
             var previousTransaction = await _unitOfWork.MealTransactions.Query()
                 .Where(mt => mt.StudentNationalId == student.NationalId &&
                            mt.MealTypeId == request.MealTypeId &&
@@ -310,6 +323,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (previousTransaction != null)
             {
+                _logger.LogInformation("Meal already received: StudentId={StudentId}, MealType={MealType}",
+                    student.StudentId, request.MealTypeId);
                 return new MealScanResultDto
                 {
                     Success = false,
@@ -318,7 +333,7 @@ namespace ASUDorms.Infrastructure.Services
                 };
             }
 
-            // 8. Create meal transaction
+            // Create meal transaction
             var mealTransaction = new MealTransaction
             {
                 StudentNationalId = student.NationalId,
@@ -333,7 +348,6 @@ namespace ASUDorms.Infrastructure.Services
             await _unitOfWork.MealTransactions.AddAsync(mealTransaction);
             await _unitOfWork.SaveChangesAsync();
 
-            // 9. Return success
             return new MealScanResultDto
             {
                 Success = true,
@@ -346,27 +360,23 @@ namespace ASUDorms.Infrastructure.Services
         {
             var currentTime = DateTime.Now.TimeOfDay;
 
-            // MealTypeId 1: Breakfast+Dinner (ONLY 5:00 PM - 9:00 PM)
             if (mealTypeId == 1)
             {
-                var eveningStart = new TimeSpan(17, 0, 0);  // 5:00 PM
-                var eveningEnd = new TimeSpan(21, 0, 0);    // 9:00 PM
-
+                var eveningStart = new TimeSpan(17, 0, 0);
+                var eveningEnd = new TimeSpan(21, 0, 0);
                 return currentTime >= eveningStart && currentTime <= eveningEnd;
             }
 
-            // MealTypeId 2: Lunch (1:00 PM - 9:00 PM)
             if (mealTypeId == 2)
             {
-                var startTime = new TimeSpan(13, 0, 0);  // 1:00 PM
-                var endTime = new TimeSpan(21, 0, 0);    // 9:00 PM
+                var startTime = new TimeSpan(13, 0, 0);
+                var endTime = new TimeSpan(21, 0, 0);
                 return currentTime >= startTime && currentTime <= endTime;
             }
 
             return false;
         }
 
-        // NEW METHOD - Get meal settings
         public async Task<MealSettingsDto> GetMealSettingsAsync()
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
@@ -378,14 +388,16 @@ namespace ASUDorms.Infrastructure.Services
             };
         }
 
-        // NEW METHOD - Update meal settings (Registration only)
         public async Task<bool> UpdateMealSettingsAsync(UpdateMealSettingsDto dto)
         {
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
             var dormLocation = await _unitOfWork.DormLocations.GetByIdAsync(dormLocationId);
 
             if (dormLocation == null)
+            {
+                _logger.LogError("Dorm location not found: DormLocationId={DormLocationId}", dormLocationId);
                 return false;
+            }
 
             dormLocation.AllowCombinedMealScan = dto.AllowCombinedMealScan;
             await _unitOfWork.SaveChangesAsync();
@@ -393,7 +405,6 @@ namespace ASUDorms.Infrastructure.Services
             return true;
         }
 
-        // NEW METHOD - Get all dorm locations settings (Registration only)
         public async Task<AllDormLocationSettingsDto> GetAllDormLocationsSettingsAsync()
         {
             var dormLocations = await _unitOfWork.DormLocations
@@ -413,13 +424,15 @@ namespace ASUDorms.Infrastructure.Services
             };
         }
 
-        // NEW METHOD - Update specific dorm location setting (Registration only)
         public async Task<bool> UpdateDormLocationMealSettingAsync(UpdateDormLocationMealSettingDto dto)
         {
             var dormLocation = await _unitOfWork.DormLocations.GetByIdAsync(dto.DormLocationId);
 
             if (dormLocation == null)
+            {
+                _logger.LogError("Dorm location not found: DormLocationId={DormLocationId}", dto.DormLocationId);
                 return false;
+            }
 
             dormLocation.AllowCombinedMealScan = dto.AllowCombinedMealScan;
             await _unitOfWork.SaveChangesAsync();
@@ -427,7 +440,6 @@ namespace ASUDorms.Infrastructure.Services
             return true;
         }
 
-        // NEW METHOD - Bulk update all dorm locations (Registration only)
         public async Task<bool> BulkUpdateAllDormLocationsAsync(BulkUpdateMealSettingsDto dto)
         {
             var dormLocations = await _unitOfWork.DormLocations
@@ -456,6 +468,15 @@ namespace ASUDorms.Infrastructure.Services
                 PhotoUrl = student.PhotoUrl,
                 timeScanned = scanTime
             };
+        }
+
+        private string HashString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "null";
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes)[..8];
         }
     }
 }

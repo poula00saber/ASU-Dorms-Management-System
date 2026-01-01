@@ -29,24 +29,37 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<StudentDto> CreateStudentAsync(CreateStudentDto dto)
         {
+            var nationalIdHash = HashString(dto.NationalId);
+
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during student creation");
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
 
-            _logger.LogInformation($"Creating student for dorm location: {dormLocationId}");
+            _logger.LogInformation("Creating student: StudentId={StudentId}, NationalIdHash={NationalIdHash}, DormLocationId={DormLocationId}",
+                dto.StudentId, nationalIdHash, dormLocationId);
 
             // Validate secondary school info for new students
             if (dto.Status == StudentStatus.NewStudent)
             {
                 if (string.IsNullOrWhiteSpace(dto.SecondarySchoolName))
+                {
+                    _logger.LogWarning("Missing secondary school name for new student: StudentId={StudentId}", dto.StudentId);
                     throw new InvalidOperationException("Secondary school name is required for new students");
+                }
                 if (string.IsNullOrWhiteSpace(dto.SecondarySchoolGovernment))
+                {
+                    _logger.LogWarning("Missing secondary school government for new student: StudentId={StudentId}", dto.StudentId);
                     throw new InvalidOperationException("Secondary school government is required for new students");
+                }
                 if (!dto.HighSchoolPercentage.HasValue)
+                {
+                    _logger.LogWarning("Missing high school percentage for new student: StudentId={StudentId}", dto.StudentId);
                     throw new InvalidOperationException("High school percentage is required for new students");
+                }
             }
 
             // Check if StudentId already exists in this location
@@ -55,6 +68,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (existingStudent.Any())
             {
+                _logger.LogWarning("Student ID already exists: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    dto.StudentId, dormLocationId);
                 throw new InvalidOperationException("Student ID already exists in this location");
             }
 
@@ -64,6 +79,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (existingNationalId.Any())
             {
+                _logger.LogWarning("National ID already exists: NationalIdHash={NationalIdHash}", nationalIdHash);
                 throw new InvalidOperationException("National ID already exists");
             }
 
@@ -106,24 +122,31 @@ namespace ASUDorms.Infrastructure.Services
                 MissedMealsCount = 0,
                 HasOutstandingPayment = false,
                 OutstandingAmount = 0
-                // LastModifiedBy will be set automatically by DbContext when SaveChangesAsync is called
             };
 
             await _unitOfWork.Students.AddAsync(student);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation($"Student {dto.StudentId} created successfully for dorm location {dormLocationId}");
+            _logger.LogInformation("Student created successfully: StudentId={StudentId}, Name={FirstName} {LastName}",
+                student.StudentId, student.FirstName, student.LastName);
 
             return MapToDto(student);
         }
+
         public async Task<StudentDto> UpdateStudentAsync(string studentId, CreateStudentDto dto)
         {
+            var nationalIdHash = HashString(dto.NationalId);
+
             var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during student update: StudentId={StudentId}", studentId);
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
+
+            _logger.LogInformation("Updating student: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                studentId, nationalIdHash);
 
             var student = await _unitOfWork.Students
                 .Query()
@@ -131,6 +154,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found for update: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException("Student not found");
             }
 
@@ -138,11 +163,20 @@ namespace ASUDorms.Infrastructure.Services
             if (dto.Status == StudentStatus.NewStudent)
             {
                 if (string.IsNullOrWhiteSpace(dto.SecondarySchoolName))
+                {
+                    _logger.LogWarning("Missing secondary school name for updated student: StudentId={StudentId}", studentId);
                     throw new InvalidOperationException("Secondary school name is required for new students");
+                }
                 if (string.IsNullOrWhiteSpace(dto.SecondarySchoolGovernment))
+                {
+                    _logger.LogWarning("Missing secondary school government for updated student: StudentId={StudentId}", studentId);
                     throw new InvalidOperationException("Secondary school government is required for new students");
+                }
                 if (!dto.HighSchoolPercentage.HasValue)
+                {
+                    _logger.LogWarning("Missing high school percentage for updated student: StudentId={StudentId}", studentId);
                     throw new InvalidOperationException("High school percentage is required for new students");
+                }
             }
 
             // Check if NationalId is being changed and if it already exists
@@ -154,6 +188,8 @@ namespace ASUDorms.Infrastructure.Services
 
                 if (existingNationalId.Any())
                 {
+                    _logger.LogWarning("Duplicate national ID during update: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                        studentId, nationalIdHash);
                     throw new InvalidOperationException("National ID already exists");
                 }
             }
@@ -199,6 +235,9 @@ namespace ASUDorms.Infrastructure.Services
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
 
+            _logger.LogInformation("Student updated successfully: StudentId={StudentId}, Name={FirstName} {LastName}",
+                student.StudentId, student.FirstName, student.LastName);
+
             return MapToDto(student);
         }
 
@@ -208,8 +247,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during student retrieval: StudentId={StudentId}", studentId);
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
+
+            _logger.LogDebug("Getting student: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                studentId, dormLocationId);
 
             var student = await _unitOfWork.Students
                 .Query()
@@ -218,6 +261,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException("Student not found");
             }
 
@@ -230,8 +275,11 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogDebug("User not associated with dorm location, returning empty student list");
                 return new List<StudentDto>();
             }
+
+            _logger.LogDebug("Getting all students: DormLocationId={DormLocationId}", dormLocationId);
 
             var students = await _unitOfWork.Students
                 .Query()
@@ -240,6 +288,9 @@ namespace ASUDorms.Infrastructure.Services
                 .OrderBy(s => s.FirstName)
                 .ThenBy(s => s.LastName)
                 .ToListAsync();
+
+            _logger.LogDebug("Retrieved {Count} students for dorm location {DormLocationId}",
+                students.Count, dormLocationId);
 
             return students.Select(MapToDto).ToList();
         }
@@ -250,8 +301,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogDebug("User not associated with dorm location, returning empty search results");
                 return new List<StudentDto>();
             }
+
+            _logger.LogDebug("Searching students: SearchTerm={SearchTerm}, DormLocationId={DormLocationId}",
+                searchTerm, dormLocationId);
 
             var students = await _unitOfWork.Students
                 .Query()
@@ -268,6 +323,9 @@ namespace ASUDorms.Infrastructure.Services
                 .ThenBy(s => s.LastName)
                 .ToListAsync();
 
+            _logger.LogDebug("Found {Count} students matching search term '{SearchTerm}'",
+                students.Count, searchTerm);
+
             return students.Select(MapToDto).ToList();
         }
 
@@ -277,8 +335,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during student deletion: StudentId={StudentId}", studentId);
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
+
+            _logger.LogInformation("Deleting student: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                studentId, dormLocationId);
 
             var student = await _unitOfWork.Students
                 .Query()
@@ -286,6 +348,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found for deletion: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException("Student not found");
             }
 
@@ -293,7 +357,7 @@ namespace ASUDorms.Infrastructure.Services
             _unitOfWork.Students.Delete(student);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation($"Student {studentId} deleted from dorm location {dormLocationId}");
+            _logger.LogInformation("Student deleted: StudentId={StudentId}", studentId);
         }
 
         public async Task SoftDeleteStudentAsync(string studentId)
@@ -302,8 +366,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during soft delete: StudentId={StudentId}", studentId);
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
+
+            _logger.LogInformation("Soft deleting student: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                studentId, dormLocationId);
 
             var student = await _unitOfWork.Students
                 .Query()
@@ -311,6 +379,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found for soft delete: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException("Student not found");
             }
 
@@ -319,13 +389,14 @@ namespace ASUDorms.Infrastructure.Services
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation($"Student {studentId} soft deleted from dorm location {dormLocationId}");
+            _logger.LogInformation("Student soft deleted: StudentId={StudentId}", studentId);
         }
 
         public async Task<string> UploadPhotoAsync(IFormFile file, string studentId)
         {
             if (file == null || file.Length == 0)
             {
+                _logger.LogWarning("Invalid file uploaded for student: StudentId={StudentId}", studentId);
                 throw new ArgumentException("Invalid file");
             }
 
@@ -333,6 +404,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during photo upload: StudentId={StudentId}", studentId);
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
 
@@ -342,6 +414,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found for photo upload: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException("Student not found");
             }
 
@@ -351,18 +425,20 @@ namespace ASUDorms.Infrastructure.Services
 
             if (!allowedExtensions.Contains(extension))
             {
+                _logger.LogWarning("Invalid file type for student photo: StudentId={StudentId}, FileName={FileName}, Extension={Extension}",
+                    studentId, file.FileName, extension);
                 throw new ArgumentException("Only JPG, JPEG, PNG and GIF files are allowed");
             }
 
             // Validate file size (5MB max)
             if (file.Length > 5 * 1024 * 1024)
             {
+                _logger.LogWarning("File too large for student photo: StudentId={StudentId}, FileName={FileName}, Size={Size} bytes",
+                    studentId, file.FileName, file.Length);
                 throw new ArgumentException("File size cannot exceed 5MB");
             }
 
             // Determine if male or female based on dorm location
-            // Assuming: dormLocationId == 1 is male (طلبة العباسية)
-            //           other dorm locations are female
             bool isMale = dormLocationId == 1;
             string genderFolder = isMale ? "males" : "females";
 
@@ -379,11 +455,11 @@ namespace ASUDorms.Infrastructure.Services
                     try
                     {
                         File.Delete(oldPhotoPath);
-                        _logger.LogInformation($"Deleted old photo: {oldPhotoPath}");
+                        _logger.LogDebug("Deleted old photo: {PhotoPath}", oldPhotoPath);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning($"Could not delete old photo: {ex.Message}");
+                        _logger.LogWarning("Could not delete old photo: {ErrorMessage}", ex.Message);
                     }
                 }
             }
@@ -398,7 +474,6 @@ namespace ASUDorms.Infrastructure.Services
                 await file.CopyToAsync(stream);
             }
 
-            // FIXED: Update photo URL to include gender folder
             var photoUrl = $"/uploads/{genderFolder}/photos/{fileName}";
 
             // Update student photo URL
@@ -406,7 +481,8 @@ namespace ASUDorms.Infrastructure.Services
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation($"Photo uploaded for student {studentId} (Gender: {genderFolder}): {photoUrl}");
+            _logger.LogInformation("Photo uploaded for student: StudentId={StudentId}, Gender={Gender}, PhotoUrl={PhotoUrl}",
+                studentId, genderFolder, photoUrl);
 
             return photoUrl;
         }
@@ -417,8 +493,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogDebug("User not associated with dorm location, returning empty building list");
                 return new List<StudentDto>();
             }
+
+            _logger.LogDebug("Getting students by building: BuildingNumber={BuildingNumber}, DormLocationId={DormLocationId}",
+                buildingNumber, dormLocationId);
 
             var students = await _unitOfWork.Students
                 .Query()
@@ -430,6 +510,9 @@ namespace ASUDorms.Infrastructure.Services
                 .ThenBy(s => s.FirstName)
                 .ToListAsync();
 
+            _logger.LogDebug("Found {Count} students in building {BuildingNumber}",
+                students.Count, buildingNumber);
+
             return students.Select(MapToDto).ToList();
         }
 
@@ -439,8 +522,12 @@ namespace ASUDorms.Infrastructure.Services
 
             if (dormLocationId == 0)
             {
+                _logger.LogDebug("User not associated with dorm location, returning empty faculty list");
                 return new List<StudentDto>();
             }
+
+            _logger.LogDebug("Getting students by faculty: Faculty={Faculty}, DormLocationId={DormLocationId}",
+                faculty, dormLocationId);
 
             var students = await _unitOfWork.Students
                 .Query()
@@ -452,10 +539,10 @@ namespace ASUDorms.Infrastructure.Services
                 .ThenBy(s => s.FirstName)
                 .ToListAsync();
 
+            _logger.LogDebug("Found {Count} students in faculty {Faculty}", students.Count, faculty);
+
             return students.Select(MapToDto).ToList();
         }
-
-
 
         public async Task<List<StudentDto>> GetStudentsByDormLocationAsync(int dormLocationId)
         {
@@ -463,18 +550,17 @@ namespace ASUDorms.Infrastructure.Services
 
             if (currentDormLocationId == 0)
             {
+                _logger.LogWarning("User not associated with dorm location during cross-location request");
                 throw new UnauthorizedAccessException("User is not associated with a dorm location");
             }
 
-            // For security: only allow getting students from the same dorm location
-            // Or if you want to allow cross-location access for registration role, remove this check
             if (dormLocationId != currentDormLocationId)
             {
-                _logger.LogWarning($"User from dorm {currentDormLocationId} tried to access dorm {dormLocationId}");
-                // You can either throw an exception or just return current location students
-                // For flexibility, let's allow it if the user is Registration role
-                // This should be handled in the controller with proper authorization
+                _logger.LogWarning("Cross-dorm location access attempt: Requested={Requested}, Current={Current}",
+                    dormLocationId, currentDormLocationId);
             }
+
+            _logger.LogDebug("Getting students by dorm location: DormLocationId={DormLocationId}", dormLocationId);
 
             var students = await _unitOfWork.Students
                 .Query()
@@ -484,9 +570,11 @@ namespace ASUDorms.Infrastructure.Services
                 .ThenBy(s => s.LastName)
                 .ToListAsync();
 
+            _logger.LogDebug("Retrieved {Count} students for dorm location {DormLocationId}",
+                students.Count, dormLocationId);
+
             return students.Select(MapToDto).ToList();
         }
-
 
         private StudentDto MapToDto(Student student)
         {
@@ -529,11 +617,19 @@ namespace ASUDorms.Infrastructure.Services
                 GuardianName = student.GuardianName,
                 GuardianRelationship = student.GuardianRelationship,
                 GuardianPhone = student.GuardianPhone,
-                // Add audit fields
                 CreatedAt = student.CreatedAt,
                 UpdatedAt = student.UpdatedAt,
                 ModifiedBy = student.LastModifiedBy
             };
+        }
+
+        private string HashString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "null";
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes)[..8];
         }
     }
 }

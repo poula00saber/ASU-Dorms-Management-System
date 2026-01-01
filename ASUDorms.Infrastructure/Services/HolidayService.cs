@@ -3,6 +3,7 @@ using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,23 +15,34 @@ namespace ASUDorms.Infrastructure.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IAuthService _authService;
+        private readonly ILogger<HolidayService> _logger;
 
-        public HolidayService(IUnitOfWork unitOfWork, IAuthService authService)
+        public HolidayService(
+            IUnitOfWork unitOfWork,
+            IAuthService authService,
+            ILogger<HolidayService> logger)
         {
             _unitOfWork = unitOfWork;
             _authService = authService;
+            _logger = logger;
         }
 
         public async Task<HolidayDto> CreateHolidayAsync(CreateHolidayDto dto)
         {
+            var nationalIdHash = HashString(dto.StudentNationalId);
+
             // Validate dates
             if (dto.StartDate > dto.EndDate)
             {
+                _logger.LogWarning("Invalid date range: StartDate={StartDate} > EndDate={EndDate}",
+                    dto.StartDate.ToString("yyyy-MM-dd"), dto.EndDate.ToString("yyyy-MM-dd"));
                 throw new ArgumentException("Start date cannot be after end date");
             }
 
             if (dto.StartDate < DateTime.Today)
             {
+                _logger.LogWarning("Start date in past: StartDate={StartDate}",
+                    dto.StartDate.ToString("yyyy-MM-dd"));
                 throw new ArgumentException("Start date cannot be in the past");
             }
 
@@ -41,6 +53,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found: NationalIdHash={NationalIdHash}", nationalIdHash);
                 throw new KeyNotFoundException($"Student with National ID '{dto.StudentNationalId}' not found or is deleted");
             }
 
@@ -55,6 +68,8 @@ namespace ASUDorms.Infrastructure.Services
 
             if (isOverlapping)
             {
+                _logger.LogWarning("Date overlap detected: StudentId={StudentId}, ExistingHolidays={Count}",
+                    student.StudentId, existingActiveHolidays.Count);
                 throw new InvalidOperationException("Holiday dates overlap with an existing active holiday for this student");
             }
 
@@ -68,8 +83,6 @@ namespace ASUDorms.Infrastructure.Services
                 StudentId = student.StudentId,
                 StartDate = dto.StartDate.Date,
                 EndDate = dto.EndDate.Date,
-
-                // Set single field for who modified
                 LastModifiedBy = modifiedBy
             };
 
@@ -87,6 +100,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (holiday == null)
             {
+                _logger.LogWarning("Holiday not found or already deleted: HolidayId={HolidayId}", holidayId);
                 throw new KeyNotFoundException($"Active holiday with ID {holidayId} not found");
             }
 
@@ -101,7 +115,6 @@ namespace ASUDorms.Infrastructure.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
-        // Get holidays by StudentId
         public async Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId)
         {
             // Find the student by StudentId
@@ -111,6 +124,7 @@ namespace ASUDorms.Infrastructure.Services
 
             if (student == null)
             {
+                _logger.LogWarning("Student not found: StudentId={StudentId}", studentId);
                 throw new KeyNotFoundException($"Student with Student ID '{studentId}' not found");
             }
 
@@ -125,7 +139,6 @@ namespace ASUDorms.Infrastructure.Services
             return holidays.Select(h => MapToDto(h, h.Student)).ToList();
         }
 
-        // Get holidays by NationalId
         public async Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId)
         {
             var holidays = await _unitOfWork.Holidays
@@ -151,6 +164,15 @@ namespace ASUDorms.Infrastructure.Services
                 ModifiedBy = holiday.LastModifiedBy,
                 LastModifiedDate = holiday.UpdatedAt ?? holiday.CreatedAt
             };
+        }
+
+        private string HashString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "null";
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes)[..8];
         }
     }
 }

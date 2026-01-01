@@ -1,5 +1,4 @@
-﻿
-using ASUDorms.Application.DTOs.Students;
+﻿using ASUDorms.Application.DTOs.Students;
 using ASUDorms.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,32 +20,27 @@ namespace ASUDorms.WebAPI.Controllers
             _logger = logger;
         }
 
-
-
-
-
         [HttpGet("print-data")]
         [Authorize(Roles = "Registration")]
         public async Task<IActionResult> GetStudentsForPrinting([FromQuery] int? dormLocationId = null)
         {
+            _logger.LogInformation("Getting students for printing: DormLocationId={DormLocationId}",
+                dormLocationId?.ToString() ?? "Current");
+
             try
             {
-                _logger.LogInformation("Getting students for printing...");
-
                 List<StudentDto> students;
 
                 if (dormLocationId.HasValue && dormLocationId.Value > 0)
                 {
-                    // Get students for specific dorm location
                     students = await _studentService.GetStudentsByDormLocationAsync(dormLocationId.Value);
                 }
                 else
                 {
-                    // Get all students from current user's dorm location
                     students = await _studentService.GetAllStudentsAsync();
                 }
 
-                _logger.LogInformation($"Returned {students.Count} students for printing");
+                _logger.LogInformation("Returned {Count} students for printing", students.Count);
                 return Ok(students);
             }
             catch (Exception ex)
@@ -56,53 +50,46 @@ namespace ASUDorms.WebAPI.Controllers
             }
         }
 
-
-
-
-
-
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateStudentDto dto)
         {
+            var nationalIdHash = HashString(dto.NationalId);
+
+            _logger.LogInformation("Creating student: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                dto.StudentId, nationalIdHash);
+
             try
             {
-                // Debug: Log authentication status
-                _logger.LogInformation("========== CREATE STUDENT DEBUG ==========");
-                _logger.LogInformation($"User Authenticated: {User.Identity?.IsAuthenticated}");
-                _logger.LogInformation($"User Name: {User.Identity?.Name}");
-
-                // Log all claims
-                _logger.LogInformation("Claims in request:");
-                foreach (var claim in User.Claims)
-                {
-                    _logger.LogInformation($"  {claim.Type} = {claim.Value}");
-                }
-                _logger.LogInformation("==========================================");
-
                 var student = await _studentService.CreateStudentAsync(dto);
+
+                _logger.LogInformation("Student created successfully: StudentId={StudentId}", student.StudentId);
+
                 return CreatedAtAction(nameof(GetById), new { id = student.StudentId }, student);
             }
             catch (UnauthorizedAccessException ex)
             {
-                _logger.LogError($"❌ Unauthorized: {ex.Message}");
+                _logger.LogWarning("Unauthorized student creation: StudentId={StudentId}, Error={ErrorMessage}",
+                    dto.StudentId, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError($"❌ Invalid Operation: {ex.Message}");
+                _logger.LogWarning("Invalid student creation: StudentId={StudentId}, Error={ErrorMessage}",
+                    dto.StudentId, ex.Message);
                 return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ Error creating student");
+                _logger.LogError(ex, "Error creating student: StudentId={StudentId}", dto.StudentId);
                 return StatusCode(500, new { message = "An error occurred", details = ex.Message });
             }
         }
-        [Authorize(Roles = "Registration,User")]
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(string id)
         {
+            _logger.LogDebug("Getting student: StudentId={StudentId}", id);
+
             try
             {
                 var student = await _studentService.GetStudentByIdAsync(id);
@@ -110,31 +97,33 @@ namespace ASUDorms.WebAPI.Controllers
             }
             catch (KeyNotFoundException ex)
             {
+                _logger.LogWarning("Student not found: StudentId={StudentId}", id);
                 return NotFound(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {
+                _logger.LogWarning("Unauthorized student access: StudentId={StudentId}, Error={ErrorMessage}",
+                    id, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
         }
 
         [HttpGet]
-        [Authorize(Roles = "Registration,User")]
-
         public async Task<IActionResult> GetAll()
         {
+            _logger.LogDebug("Getting all students");
+
             try
             {
-                _logger.LogInformation("Getting all students...");
-                _logger.LogInformation($"User authenticated: {User.Identity?.IsAuthenticated}");
-
                 var students = await _studentService.GetAllStudentsAsync();
-                _logger.LogInformation($"Returned {students.Count} students");
+
+                _logger.LogDebug("Returned {Count} students", students.Count);
+
                 return Ok(students);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting students");
+                _logger.LogError(ex, "Error getting all students");
                 return StatusCode(500, new { message = ex.Message });
             }
         }
@@ -142,21 +131,34 @@ namespace ASUDorms.WebAPI.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] CreateStudentDto dto)
         {
+            var nationalIdHash = HashString(dto.NationalId);
+
+            _logger.LogInformation("Updating student: StudentId={StudentId}, NationalIdHash={NationalIdHash}",
+                id, nationalIdHash);
+
             try
             {
                 var student = await _studentService.UpdateStudentAsync(id, dto);
+
+                _logger.LogInformation("Student updated successfully: StudentId={StudentId}", id);
+
                 return Ok(student);
             }
             catch (KeyNotFoundException ex)
             {
+                _logger.LogWarning("Student not found for update: StudentId={StudentId}", id);
                 return NotFound(new { message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning("Invalid student update: StudentId={StudentId}, Error={ErrorMessage}",
+                    id, ex.Message);
                 return BadRequest(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {
+                _logger.LogWarning("Unauthorized student update: StudentId={StudentId}, Error={ErrorMessage}",
+                    id, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
         }
@@ -164,17 +166,25 @@ namespace ASUDorms.WebAPI.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
+            _logger.LogInformation("Deleting student: StudentId={StudentId}", id);
+
             try
             {
                 await _studentService.DeleteStudentAsync(id);
+
+                _logger.LogInformation("Student deleted successfully: StudentId={StudentId}", id);
+
                 return NoContent();
             }
             catch (KeyNotFoundException ex)
             {
+                _logger.LogWarning("Student not found for deletion: StudentId={StudentId}", id);
                 return NotFound(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {
+                _logger.LogWarning("Unauthorized student deletion: StudentId={StudentId}, Error={ErrorMessage}",
+                    id, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
         }
@@ -182,23 +192,43 @@ namespace ASUDorms.WebAPI.Controllers
         [HttpPost("{id}/photo")]
         public async Task<IActionResult> UploadPhoto(string id, IFormFile file)
         {
+            _logger.LogInformation("Uploading photo for student: StudentId={StudentId}, FileName={FileName}, FileSize={FileSize}",
+                id, file?.FileName, file?.Length);
+
             try
             {
                 var photoUrl = await _studentService.UploadPhotoAsync(file, id);
+
+                _logger.LogInformation("Photo uploaded successfully: StudentId={StudentId}, PhotoUrl={PhotoUrl}",
+                    id, photoUrl);
+
                 return Ok(new { photoUrl });
             }
             catch (ArgumentException ex)
             {
+                _logger.LogWarning("Invalid photo upload: StudentId={StudentId}, Error={ErrorMessage}", id, ex.Message);
                 return BadRequest(new { message = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
+                _logger.LogWarning("Student not found for photo upload: StudentId={StudentId}", id);
                 return NotFound(new { message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {
+                _logger.LogWarning("Unauthorized photo upload: StudentId={StudentId}, Error={ErrorMessage}",
+                    id, ex.Message);
                 return Unauthorized(new { message = ex.Message });
             }
+        }
+
+        private string HashString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "null";
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes)[..8];
         }
     }
 }

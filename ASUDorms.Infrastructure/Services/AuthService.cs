@@ -38,17 +38,31 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
         {
+            var usernameHash = HashString(request.Username);
+
+            _logger.LogDebug("Looking up user: UsernameHash={UsernameHash}", usernameHash);
+
             var users = await _unitOfWork.Users.FindAsync(u =>
                 u.Username == request.Username && u.IsActive);
 
             var user = users.FirstOrDefault();
 
-            if (user == null || !VerifyPassword(request.Password, user.PasswordHash))
+            if (user == null)
             {
+                _logger.LogWarning("User not found or inactive: UsernameHash={UsernameHash}", usernameHash);
+                throw new UnauthorizedAccessException("Invalid username or password");
+            }
+
+            if (!VerifyPassword(request.Password, user.PasswordHash))
+            {
+                _logger.LogWarning("Invalid password: UserId={UserId}, UsernameHash={UsernameHash}",
+                    user.Id, usernameHash);
                 throw new UnauthorizedAccessException("Invalid username or password");
             }
 
             var token = GenerateJwtToken(user);
+
+            _logger.LogDebug("JWT token generated for UserId={UserId}", user.Id);
 
             var location = await _unitOfWork.DormLocations.GetByIdAsync(user.DormLocationId);
 
@@ -67,9 +81,19 @@ namespace ASUDorms.Infrastructure.Services
         {
             var userId = GetCurrentUserId();
             if (userId == 0)
+            {
+                _logger.LogDebug("No authenticated user found");
                 return null;
+            }
 
-            return await _unitOfWork.Users.GetByIdAsync(userId);
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+
+            if (user == null)
+            {
+                _logger.LogWarning("User not found in database: UserId={UserId}", userId);
+            }
+
+            return user;
         }
 
         public int GetCurrentDormLocationId()
@@ -92,7 +116,7 @@ namespace ASUDorms.Infrastructure.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetCurrentDormLocationId");
+                _logger.LogError(ex, "Error getting current dorm location from claims");
                 return 0;
             }
         }
@@ -104,15 +128,12 @@ namespace ASUDorms.Infrastructure.Services
                 var httpContext = _httpContextAccessor.HttpContext;
                 if (httpContext?.User?.Identity?.IsAuthenticated != true)
                 {
-                    _logger.LogWarning("User is not authenticated");
                     return 0;
                 }
 
-                // Try to get user ID from claims
                 var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier);
                 if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
                 {
-                    // Get user from database with dorm location
                     var user = await _unitOfWork.Users
                         .Query()
                         .Include(u => u.DormLocation)
@@ -120,17 +141,15 @@ namespace ASUDorms.Infrastructure.Services
 
                     if (user != null)
                     {
-                        _logger.LogInformation($"Found user {user.Username} with DormLocationId: {user.DormLocationId}");
                         return user.DormLocationId;
                     }
                 }
 
-                _logger.LogWarning("Could not find user or dorm location from database");
                 return 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetCurrentDormLocationIdAsync");
+                _logger.LogError(ex, "Error getting current dorm location from database");
                 return 0;
             }
         }
@@ -155,7 +174,7 @@ namespace ASUDorms.Infrastructure.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetCurrentUserId");
+                _logger.LogError(ex, "Error getting current user ID");
                 return 0;
             }
         }
@@ -194,6 +213,15 @@ namespace ASUDorms.Infrastructure.Services
         public static string HashPassword(string password)
         {
             return BCrypt.Net.BCrypt.HashPassword(password);
+        }
+
+        private string HashString(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "null";
+
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes)[..8];
         }
     }
 }
