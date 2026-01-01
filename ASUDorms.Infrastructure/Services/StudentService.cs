@@ -360,8 +360,14 @@ namespace ASUDorms.Infrastructure.Services
                 throw new ArgumentException("File size cannot exceed 5MB");
             }
 
+            // Determine if male or female based on dorm location
+            // Assuming: dormLocationId == 1 is male (طلبة العباسية)
+            //           other dorm locations are female
+            bool isMale = dormLocationId == 1;
+            string genderFolder = isMale ? "males" : "females";
+
             // Create uploads folder if it doesn't exist
-            var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "photos");
+            var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", genderFolder, "photos");
             Directory.CreateDirectory(uploadsFolder);
 
             // Delete old photo if exists
@@ -392,14 +398,15 @@ namespace ASUDorms.Infrastructure.Services
                 await file.CopyToAsync(stream);
             }
 
-            var photoUrl = $"/uploads/photos/{fileName}";
+            // FIXED: Update photo URL to include gender folder
+            var photoUrl = $"/uploads/{genderFolder}/photos/{fileName}";
 
             // Update student photo URL
             student.PhotoUrl = photoUrl;
             _unitOfWork.Students.Update(student);
             await _unitOfWork.SaveChangesAsync();
 
-            _logger.LogInformation($"Photo uploaded for student {studentId}: {photoUrl}");
+            _logger.LogInformation($"Photo uploaded for student {studentId} (Gender: {genderFolder}): {photoUrl}");
 
             return photoUrl;
         }
