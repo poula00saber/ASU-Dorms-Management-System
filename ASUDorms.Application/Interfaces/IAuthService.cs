@@ -10,7 +10,12 @@ namespace ASUDorms.Application.Interfaces
     {
         Task<LoginResponseDto> LoginAsync(LoginRequestDto request);
         Task<AppUser> GetCurrentUserAsync();
-        int GetCurrentDormLocationId();
-        Task<int> GetCurrentDormLocationIdAsync(); // ← Add this
+        int GetCurrentDormLocationId(); // User's assigned dorm
+        Task<int> GetCurrentDormLocationIdAsync();
+        int GetSelectedDormLocationId(); // SELECTED dorm (with header check)
+        Task<int> GetSelectedDormLocationIdAsync();
+        bool CanAccessDormLocation(int dormLocationId);
+        int GetDormIdFromHeaderOrToken();
+
     }
 }

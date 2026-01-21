@@ -1,6 +1,7 @@
 ﻿using ASUDorms.Application.DTOs.Reports;
 using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
@@ -26,11 +27,32 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<RegistrationDashboardDto> GetRegistrationDashboardStatsAsync()
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            _logger.LogDebug("🎬 ReportService.GetRegistrationDashboardStatsAsync STARTED");
+
+            // Try the direct method first
+            var dormLocationId = _authService.GetDormIdFromHeaderOrToken();
+
+            _logger.LogDebug("📊 Direct method returned dormLocationId: {DormLocationId}", dormLocationId);
+
+            // If direct method fails, try async method
+            if (dormLocationId == 0)
+            {
+                dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+                _logger.LogDebug("📊 Async method returned dormLocationId: {DormLocationId}", dormLocationId);
+            }
+
             var currentDate = DateTime.UtcNow.Date;
 
-            _logger.LogDebug("Getting registration dashboard stats: DormLocationId={DormLocationId}, Date={Date}",
+            _logger.LogDebug("🏠 Final dormLocationId: {DormLocationId}, Date: {Date}",
                 dormLocationId, currentDate.ToString("yyyy-MM-dd"));
+
+            // Direct database check for debugging
+            var studentCount = await _unitOfWork.Students
+                .Query()
+                .CountAsync(s => s.DormLocationId == dormLocationId && !s.IsDeleted);
+
+            _logger.LogDebug("🧮 Direct DB check: {StudentCount} students in dorm {DormLocationId}",
+                studentCount, dormLocationId);
 
             try
             {
@@ -241,7 +263,7 @@ namespace ASUDorms.Infrastructure.Services
             string district = null,
             string faculty = null)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
 
             _logger.LogDebug("Generating meal absence report: FromDate={FromDate}, ToDate={ToDate}, Building={BuildingNumber}",
                 fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"), buildingNumber ?? "All");
@@ -447,7 +469,7 @@ namespace ASUDorms.Infrastructure.Services
             DateTime fromDate,
             DateTime toDate)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
 
             _logger.LogDebug("Getting buildings statistics: FromDate={FromDate}, ToDate={ToDate}",
                 fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"));
@@ -504,7 +526,7 @@ namespace ASUDorms.Infrastructure.Services
             DateTime date,
             string buildingNumber = null)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
 
             _logger.LogDebug("Generating restaurant daily report: Date={Date}, Building={BuildingNumber}",
                 date.ToString("yyyy-MM-dd"), buildingNumber ?? "All");
@@ -646,7 +668,7 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<DailyAbsenceReportDto> GetDailyAbsenceReportAsync(DateTime date)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
 
             _logger.LogDebug("Generating daily absence report: Date={Date}", date.ToString("yyyy-MM-dd"));
 
@@ -780,7 +802,7 @@ namespace ASUDorms.Infrastructure.Services
             DateTime fromDate,
             DateTime toDate)
         {
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
 
             _logger.LogDebug("Generating monthly absence report: FromDate={FromDate}, ToDate={ToDate}",
                 fromDate.ToString("yyyy-MM-dd"), toDate.ToString("yyyy-MM-dd"));

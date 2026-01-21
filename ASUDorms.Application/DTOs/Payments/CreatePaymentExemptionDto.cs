@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace ASUDorms.Application.DTOs.Payments
 {
@@ -20,10 +15,8 @@ namespace ASUDorms.Application.DTOs.Payments
         public DateTime EndDate { get; set; }
 
         [StringLength(1000, ErrorMessage = "الملاحظات لا يمكن أن تتجاوز 1000 حرف")]
-        public string Notes { get; set; }
+        public string? Notes { get; set; }
 
-        [Required(ErrorMessage = "اسم الموظف المعتمد مطلوب")]
-        [StringLength(100, ErrorMessage = "اسم الموظف لا يمكن أن يتجاوز 100 حرف")]
-        public string ApprovedBy { get; set; }
+        // Remove ApprovedBy from here - it will be set from current user in service
     }
 }

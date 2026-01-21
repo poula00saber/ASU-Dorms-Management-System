@@ -36,10 +36,43 @@ namespace ASUDorms.Infrastructure.Services
             _logger = logger;
         }
 
+
+        public bool CanAccessDormLocation(int dormLocationId)
+        {
+            try
+            {
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext?.User?.Identity?.IsAuthenticated != true)
+                {
+                    return false;
+                }
+
+                var accessibleClaim = httpContext.User.FindFirst("AccessibleDormLocations");
+                if (accessibleClaim != null)
+                {
+                    var accessibleIds = System.Text.Json.JsonSerializer.Deserialize<List<int>>(accessibleClaim.Value);
+                    return accessibleIds?.Contains(dormLocationId) ?? false;
+                }
+
+                // Fallback: check if it matches user's primary location
+                var locationClaim = httpContext.User.FindFirst("DormLocationId");
+                if (locationClaim != null && int.TryParse(locationClaim.Value, out int primaryLocationId))
+                {
+                    return primaryLocationId == dormLocationId;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking dorm location access");
+                return false;
+            }
+        }
+
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
         {
             var usernameHash = HashString(request.Username);
-
             _logger.LogDebug("Looking up user: UsernameHash={UsernameHash}", usernameHash);
 
             var users = await _unitOfWork.Users.FindAsync(u =>
@@ -61,10 +94,26 @@ namespace ASUDorms.Infrastructure.Services
             }
 
             var token = GenerateJwtToken(user);
-
             _logger.LogDebug("JWT token generated for UserId={UserId}", user.Id);
 
             var location = await _unitOfWork.DormLocations.GetByIdAsync(user.DormLocationId);
+
+            // Get all accessible locations
+            var accessibleIds = user.GetAccessibleLocations();
+            var accessibleLocations = new Dictionary<int, string>();
+
+            // Fetch actual dorm location names from database
+            foreach (var id in accessibleIds)
+            {
+                var loc = await _unitOfWork.DormLocations.GetByIdAsync(id);
+                if (loc != null)
+                {
+                    accessibleLocations[id] = loc.Name; // Use actual Name from database
+                }
+            }
+
+            _logger.LogInformation("User {UserId} can access {Count} locations: {Locations}",
+                user.Id, accessibleIds.Count, string.Join(", ", accessibleIds));
 
             return new LoginResponseDto
             {
@@ -73,10 +122,11 @@ namespace ASUDorms.Infrastructure.Services
                 Username = user.Username,
                 Role = user.Role.ToString(),
                 DormLocationId = user.DormLocationId,
-                DormLocationName = location?.Name
+                DormLocationName = location?.Name,
+                AccessibleDormLocationIds = accessibleIds,
+                AccessibleDormLocations = accessibleLocations
             };
         }
-
         public async Task<AppUser> GetCurrentUserAsync()
         {
             var userId = GetCurrentUserId();
@@ -98,6 +148,7 @@ namespace ASUDorms.Infrastructure.Services
 
         public int GetCurrentDormLocationId()
         {
+            // This should return the USER'S ASSIGNED dorm (from JWT token)
             try
             {
                 var httpContext = _httpContextAccessor.HttpContext;
@@ -121,6 +172,9 @@ namespace ASUDorms.Infrastructure.Services
             }
         }
 
+
+
+
         public async Task<int> GetCurrentDormLocationIdAsync()
         {
             try
@@ -141,7 +195,7 @@ namespace ASUDorms.Infrastructure.Services
 
                     if (user != null)
                     {
-                        return user.DormLocationId;
+                        return user.DormLocationId; // User's assigned dorm
                     }
                 }
 
@@ -154,6 +208,306 @@ namespace ASUDorms.Infrastructure.Services
             }
         }
 
+
+        public int GetDormIdFromHeaderOrToken()
+        {
+            try
+            {
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext == null) return 0;
+
+                // METHOD 1: Direct header check (bypass all logic)
+                if (httpContext.Request.Headers.TryGetValue("X-Selected-Dorm-Id", out var headerValue))
+                {
+                    _logger.LogDebug("🎯 DIRECT HEADER CHECK: X-Selected-Dorm-Id = {Value}", headerValue);
+                    if (int.TryParse(headerValue, out int dormId))
+                    {
+                        // Quick validation against token
+                        var accessibleClaim = httpContext.User.FindFirst("AccessibleDormLocations");
+                        if (accessibleClaim != null)
+                        {
+                            try
+                            {
+                                var accessibleLocations = System.Text.Json.JsonSerializer.Deserialize<List<int>>(accessibleClaim.Value);
+                                if (accessibleLocations != null && accessibleLocations.Contains(dormId))
+                                {
+                                    _logger.LogDebug("✅✅✅ DIRECT: Returning dorm {DormId} from header", dormId);
+                                    return dormId;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                // METHOD 2: Fallback to token
+                var locationClaim = httpContext.User.FindFirst("DormLocationId");
+                if (locationClaim != null && int.TryParse(locationClaim.Value, out int tokenDormId))
+                {
+                    _logger.LogDebug("🎯 DIRECT: Returning dorm {TokenDormId} from token", tokenDormId);
+                    return tokenDormId;
+                }
+
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetDormIdFromHeaderOrToken");
+                return 0;
+            }
+        }
+
+        public async Task<int> GetSelectedDormLocationIdAsync()
+        {
+            try
+            {
+                _logger.LogDebug("🔍 GetSelectedDormLocationIdAsync CALLED");
+
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext?.User?.Identity?.IsAuthenticated != true)
+                {
+                    _logger.LogDebug("🚫 User not authenticated");
+                    return 0;
+                }
+
+                // Log ALL headers for debugging
+                _logger.LogDebug("📋 ALL REQUEST HEADERS:");
+                foreach (var header in httpContext.Request.Headers)
+                {
+                    _logger.LogDebug("  {Key} = {Value}", header.Key, header.Value);
+                }
+
+                // Get header value
+                int selectedDormId = 0;
+                if (httpContext.Request.Headers.TryGetValue("X-Selected-Dorm-Id", out var headerValue))
+                {
+                    _logger.LogDebug("✅ Found X-Selected-Dorm-Id header: {HeaderValue}", headerValue);
+                    if (int.TryParse(headerValue, out selectedDormId))
+                    {
+                        _logger.LogDebug("✅ Parsed header to int: {SelectedDormId}", selectedDormId);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("❌ X-Selected-Dorm-Id header NOT FOUND");
+                }
+
+                // Get accessible locations from token
+                var accessibleClaim = httpContext.User.FindFirst("AccessibleDormLocations");
+                if (accessibleClaim != null)
+                {
+                    _logger.LogDebug("🔑 AccessibleDormLocations claim: {ClaimValue}", accessibleClaim.Value);
+
+                    try
+                    {
+                        var accessibleLocations = System.Text.Json.JsonSerializer.Deserialize<List<int>>(accessibleClaim.Value);
+                        _logger.LogDebug("📊 Accessible locations parsed: {Locations}", string.Join(", ", accessibleLocations ?? new List<int>()));
+
+                        // If we have a valid header AND it's accessible, return it
+                        if (selectedDormId > 0 && accessibleLocations != null && accessibleLocations.Contains(selectedDormId))
+                        {
+                            _logger.LogDebug("✅✅✅ RETURNING DORM FROM HEADER: {SelectedDormId}", selectedDormId);
+                            return selectedDormId;
+                        }
+                        else if (selectedDormId > 0)
+                        {
+                            _logger.LogWarning("⚠️ Header dorm {SelectedDormId} NOT in accessible locations: {AccessibleLocations}",
+                                selectedDormId, string.Join(", ", accessibleLocations ?? new List<int>()));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse accessible locations");
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("❌ No AccessibleDormLocations claim found in token");
+                }
+
+                // Fallback: get from token (primary dorm)
+                var locationClaim = httpContext.User.FindFirst("DormLocationId");
+                if (locationClaim != null && int.TryParse(locationClaim.Value, out int tokenDormId))
+                {
+                    _logger.LogDebug("🔄 FALLBACK - Returning dorm from token: {TokenDormId}", tokenDormId);
+                    return tokenDormId;
+                }
+
+                _logger.LogDebug("❌ No dorm ID found anywhere");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "💥 Error in GetSelectedDormLocationIdAsync");
+                return 0;
+            }
+        }
+        // NEW: Non-async version
+        // In AuthService.cs - FIXED GetSelectedDormLocationId method
+        public int GetSelectedDormLocationId()
+        {
+            try
+            {
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext?.User?.Identity?.IsAuthenticated != true)
+                {
+                    _logger.LogDebug("User not authenticated");
+                    return 0;
+                }
+
+                // FIRST: Get selected dorm from header
+                int selectedDormId = GetSelectedDormIdFromRequest();
+                _logger.LogDebug("📥 Selected dorm from request header: {SelectedDormId}", selectedDormId);
+
+                var userIdClaim = httpContext.User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    _logger.LogDebug("🔍 Getting selected dorm for user ID: {UserId}", userId);
+
+                    // Check accessible locations from token first (no DB query needed)
+                    var accessibleClaim = httpContext.User.FindFirst("AccessibleDormLocations");
+                    List<int> accessibleFromToken = null;
+
+                    if (accessibleClaim != null)
+                    {
+                        try
+                        {
+                            accessibleFromToken = System.Text.Json.JsonSerializer.Deserialize<List<int>>(accessibleClaim.Value);
+                            _logger.LogDebug("🔑 Accessible locations from token: {AccessibleLocations}",
+                                string.Join(", ", accessibleFromToken ?? new List<int>()));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse accessible locations from token");
+                        }
+                    }
+
+                    // If we have header and user can access it (from token), return immediately
+                    if (selectedDormId > 0 && accessibleFromToken != null && accessibleFromToken.Contains(selectedDormId))
+                    {
+                        _logger.LogDebug("✅ Using selected dorm from header (validated via token): {SelectedDormId}", selectedDormId);
+                        return selectedDormId;
+                    }
+
+                    // Fallback: Get user from database (slower)
+                    var user = _unitOfWork.Users
+                        .Query()
+                        .FirstOrDefault(u => u.Id == userId && u.IsActive);
+
+                    if (user != null)
+                    {
+                        _logger.LogDebug("👤 User found: {Username}, Primary Dorm: {PrimaryDormId}",
+                            user.Username, user.DormLocationId);
+
+                        var accessibleLocations = user.GetAccessibleLocations();
+                        _logger.LogDebug("🔑 User accessible locations: {AccessibleLocations}",
+                            string.Join(", ", accessibleLocations));
+
+                        // If no header or invalid dorm, use user's assigned dorm
+                        if (selectedDormId == 0)
+                        {
+                            _logger.LogDebug("⚠️ No selected dorm in header, using primary dorm: {PrimaryDormId}",
+                                user.DormLocationId);
+                            return user.DormLocationId;
+                        }
+
+                        if (!accessibleLocations.Contains(selectedDormId))
+                        {
+                            _logger.LogWarning("🚫 User {UserId} cannot access dorm {SelectedDormId}. Accessible: {AccessibleLocations}",
+                                userId, selectedDormId, string.Join(", ", accessibleLocations));
+                            _logger.LogDebug("Using primary dorm instead: {PrimaryDormId}", user.DormLocationId);
+                            return user.DormLocationId;
+                        }
+
+                        _logger.LogDebug("✅ Using selected dorm: {SelectedDormId}", selectedDormId);
+                        return selectedDormId;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("User not found in database: UserId={UserId}", userId);
+                    }
+                }
+
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting selected dorm location");
+                return 0;
+            }
+        }
+
+        private int GetSelectedDormIdFromRequest()
+        {
+            try
+            {
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext == null)
+                {
+                    _logger.LogDebug("❌ HttpContext is null");
+                    return 0;
+                }
+
+                // Check ALL headers for debugging
+                _logger.LogDebug("🔍 Checking all headers for dorm ID:");
+                foreach (var header in httpContext.Request.Headers)
+                {
+                    if (header.Key.Contains("dorm", StringComparison.OrdinalIgnoreCase) ||
+                        header.Key.Contains("selected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogDebug("  Found header: {Key} = {Value}", header.Key, header.Value);
+                    }
+                }
+
+                // Check header (from frontend)
+                if (httpContext.Request.Headers.TryGetValue("X-Selected-Dorm-Id", out var headerValue))
+                {
+                    _logger.LogDebug("🎯 Found X-Selected-Dorm-Id header: {HeaderValue}", headerValue);
+
+                    if (int.TryParse(headerValue, out int dormId))
+                    {
+                        _logger.LogDebug("✅ Successfully parsed dorm ID: {DormId}", dormId);
+                        return dormId;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("❌ Failed to parse dorm ID from header: {HeaderValue}", headerValue);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("📭 X-Selected-Dorm-Id header NOT FOUND in request");
+
+                    // Check alternative headers
+                    if (httpContext.Request.Headers.TryGetValue("Selected-Dorm-Id", out var altHeaderValue))
+                    {
+                        _logger.LogDebug("🔄 Found alternative header Selected-Dorm-Id: {Value}", altHeaderValue);
+                        if (int.TryParse(altHeaderValue, out int dormId))
+                        {
+                            return dormId;
+                        }
+                    }
+                }
+
+                // Check query string (alternative)
+                if (httpContext.Request.Query.TryGetValue("dormId", out var queryValue))
+                {
+                    _logger.LogDebug("🔗 Query string dormId found: {QueryValue}", queryValue);
+                    if (int.TryParse(queryValue, out int dormId))
+                    {
+                        return dormId;
+                    }
+                }
+
+                _logger.LogDebug("❌ No dorm ID found in request");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "💥 Error getting selected dorm ID from request");
+                return 0;
+            }
+        }
         private int GetCurrentUserId()
         {
             try
@@ -179,6 +533,7 @@ namespace ASUDorms.Infrastructure.Services
             }
         }
 
+
         private string GenerateJwtToken(AppUser user)
         {
             var securityKey = new SymmetricSecurityKey(
@@ -186,13 +541,15 @@ namespace ASUDorms.Infrastructure.Services
 
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role.ToString()),
-                new Claim("DormLocationId", user.DormLocationId.ToString())
-            };
+            var claims = new List<Claim>
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Name, user.Username),
+        new Claim(ClaimTypes.Role, user.Role.ToString()),
+        new Claim("DormLocationId", user.DormLocationId.ToString()),
+        // NEW: Add accessible locations to token
+        new Claim("AccessibleDormLocations", user.AccessibleDormLocationIds ?? $"[{user.DormLocationId}]")
+    };
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],

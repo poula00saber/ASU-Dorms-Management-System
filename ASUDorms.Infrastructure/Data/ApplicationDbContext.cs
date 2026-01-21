@@ -32,12 +32,16 @@ namespace ASUDorms.Infrastructure.Data
             // Apply configurations
             modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
-           
+            // ✅ KEEP soft delete filter
+            modelBuilder.Entity<Student>().HasQueryFilter(s => !s.IsDeleted);
+            modelBuilder.Entity<MealTransaction>().HasQueryFilter(m => !m.IsDeleted);
 
-            // Global query filter for multi-tenancy
-            modelBuilder.Entity<Student>().HasQueryFilter(s =>
-                !s.IsDeleted &&
-                s.DormLocationId == GetCurrentDormLocationId());
+
+            ///problem of students not visible  where always ask from query but we need from header
+            //// Global query filter for multi-tenancy
+            //modelBuilder.Entity<Student>().HasQueryFilter(s =>
+            //    !s.IsDeleted &&
+            //    s.DormLocationId == GetCurrentDormLocationId());
 
             modelBuilder.Entity<MealTransaction>().HasQueryFilter(m =>
                 !m.IsDeleted &&

@@ -26,7 +26,40 @@ namespace ASUDorms.Infrastructure.Services
         }
 
         // Payment Transactions
+        // Get Egypt time (UTC+2)
+        private DateTime GetEgyptTime()
+        {
+            try
+            {
+                // Try Egypt Standard Time first
+                var egyptTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Egypt Standard Time");
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, egyptTimeZone);
+            }
+            catch
+            {
+                // Egypt is UTC+2 (standard time) but may be UTC+3 during DST
+                // You might need to adjust based on current date
+                var now = DateTime.UtcNow;
 
+                // Check if we're in DST period (approximate: last Friday in April to last Thursday in October)
+                var year = now.Year;
+                var dstStart = new DateTime(year, 4, 1).AddDays((7 - (int)new DateTime(year, 4, 1).DayOfWeek + 5) % 7);
+                var dstEnd = new DateTime(year, 10, 31).AddDays(-(int)new DateTime(year, 10, 31).DayOfWeek);
+
+                if (now >= dstStart && now <= dstEnd)
+                {
+                    // DST: UTC+3
+                    return DateTime.UtcNow.AddHours(3);
+                }
+                else
+                {
+                    // Standard time: UTC+2
+                    return DateTime.UtcNow.AddHours(2);
+                }
+            }
+        }
+
+        // Payment Transactions
         public async Task<PaymentTransactionDto> CreatePaymentTransactionAsync(CreatePaymentTransactionDto dto)
         {
             var nationalIdHash = HashString(dto.StudentNationalId);
@@ -34,7 +67,8 @@ namespace ASUDorms.Infrastructure.Services
             _logger.LogInformation("Creating payment transaction: NationalIdHash={NationalIdHash}, Amount={Amount}, Type={PaymentType}",
                 nationalIdHash, dto.Amount, dto.PaymentType);
 
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = _authService.GetSelectedDormLocationId();
+            var currentUser =await _authService.GetCurrentUserAsync();
 
             // Find student
             var student = await _unitOfWork.Students
@@ -50,6 +84,8 @@ namespace ASUDorms.Infrastructure.Services
             // Validate payment type specific fields
             ValidatePaymentTypeFields(dto);
 
+            var egyptTime = GetEgyptTime();
+
             var paymentTransaction = new PaymentTransaction
             {
                 DormLocationId = dormLocationId,
@@ -62,6 +98,9 @@ namespace ASUDorms.Infrastructure.Services
                 Month = dto.Month,
                 Year = dto.Year,
                 MissedMealsCount = dto.MissedMealsCount,
+                LastModifiedBy = currentUser.Username,
+                CreatedAt = egyptTime,
+                UpdatedAt = egyptTime
             };
 
             // Update student's outstanding payment status
@@ -116,7 +155,7 @@ namespace ASUDorms.Infrastructure.Services
         {
             _logger.LogDebug("Getting payment transactions with filter");
 
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = _authService.GetSelectedDormLocationId();
             var query = _unitOfWork.PaymentTransactions
                 .Query()
                 .Include(p => p.Student)
@@ -291,7 +330,8 @@ namespace ASUDorms.Infrastructure.Services
             _logger.LogInformation("Creating payment exemption: NationalIdHash={NationalIdHash}, StartDate={StartDate}, EndDate={EndDate}",
                 nationalIdHash, dto.StartDate.ToString("yyyy-MM-dd"), dto.EndDate.ToString("yyyy-MM-dd"));
 
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = _authService.GetSelectedDormLocationId();
+            var currentUser =await _authService.GetCurrentUserAsync();
 
             // Find student
             var student = await _unitOfWork.Students
@@ -328,6 +368,8 @@ namespace ASUDorms.Infrastructure.Services
                 throw new InvalidOperationException("تواريخ الإعفاء تتداخل مع إعفاء موجود للطالب");
             }
 
+            var egyptTime = GetEgyptTime();
+
             var paymentExemption = new PaymentExemption
             {
                 DormLocationId = dormLocationId,
@@ -337,7 +379,10 @@ namespace ASUDorms.Infrastructure.Services
                 EndDate = dto.EndDate.Date,
                 Notes = dto.Notes,
                 IsActive = true,
-                ApprovedDate = DateTime.UtcNow
+                LastModifiedBy = currentUser.Username,
+                ApprovedDate = egyptTime,
+                CreatedAt = egyptTime,
+                UpdatedAt = egyptTime
             };
 
             await _unitOfWork.PaymentExemptions.AddAsync(paymentExemption);
@@ -386,10 +431,13 @@ namespace ASUDorms.Infrastructure.Services
                 throw new InvalidOperationException("تواريخ الإعفاء تتداخل مع إعفاء آخر للطالب");
             }
 
+            var egyptTime = GetEgyptTime(); // Use Egypt time here too!
+            var currentUser = await _authService.GetCurrentUserAsync();
             exemption.StartDate = dto.StartDate.Date;
             exemption.EndDate = dto.EndDate.Date;
             exemption.Notes = dto.Notes;
-            exemption.UpdatedAt = DateTime.UtcNow;
+            exemption.LastModifiedBy = currentUser.Username; // Also update who modified it
+            exemption.UpdatedAt = egyptTime; // Use Egypt time
 
             _unitOfWork.PaymentExemptions.Update(exemption);
             await _unitOfWork.SaveChangesAsync();
@@ -442,7 +490,7 @@ namespace ASUDorms.Infrastructure.Services
         {
             _logger.LogDebug("Getting payment exemptions with filter");
 
-            var dormLocationId = await _authService.GetCurrentDormLocationIdAsync();
+            var dormLocationId = _authService.GetSelectedDormLocationId();
             var query = _unitOfWork.PaymentExemptions
                 .Query()
                 .Include(e => e.Student)
@@ -507,8 +555,12 @@ namespace ASUDorms.Infrastructure.Services
                 throw new KeyNotFoundException($"الإعفاء بالرقم {id} غير موجود");
             }
 
+            var currentUser = await _authService.GetCurrentUserAsync();
+            var egyptTime = GetEgyptTime();
+
             exemption.IsActive = isActive;
-            exemption.UpdatedAt = DateTime.UtcNow;
+            exemption.LastModifiedBy = currentUser.Username;
+            exemption.UpdatedAt = egyptTime; // Use Egypt time
 
             _unitOfWork.PaymentExemptions.Update(exemption);
             await _unitOfWork.SaveChangesAsync();
@@ -575,6 +627,11 @@ namespace ASUDorms.Infrastructure.Services
                     }
                     break;
 
+                case PaymentType.LostReplacement:
+                    // Add any specific validation for Lostreplacement if needed
+                    // For now, no specific validation
+                    break;
+
                 case PaymentType.Other:
                     // No specific validation for other payments
                     break;
@@ -593,7 +650,7 @@ namespace ASUDorms.Infrastructure.Services
             }
 
             student.HasOutstandingPayment = student.OutstandingAmount > 0;
-            student.UpdatedAt = DateTime.UtcNow;
+            student.UpdatedAt = GetEgyptTime(); // Use Egypt time here too
 
             _unitOfWork.Students.Update(student);
         }
@@ -636,7 +693,7 @@ namespace ASUDorms.Infrastructure.Services
                 ModifiedBy = exemption.LastModifiedBy,
                 ApprovedDate = exemption.ApprovedDate,
                 CreatedAt = exemption.CreatedAt,
-                UpdatedAt = exemption.UpdatedAt
+                UpdatedAt = exemption.UpdatedAt,
             };
         }
 
@@ -646,6 +703,7 @@ namespace ASUDorms.Infrastructure.Services
             {
                 PaymentType.MonthlyFee => "الإيجار الشهري",
                 PaymentType.MissedMealPenalty => "غرامة الوجبات الفائتة",
+                PaymentType.LostReplacement => "بدل فائد",
                 PaymentType.Other => "أخرى",
                 _ => paymentType.ToString()
             };

@@ -31,6 +31,15 @@ namespace ASUDorms.Infrastructure.Services
         {
             var nationalIdHash = HashString(dto.StudentNationalId);
 
+            // ADDED: Get selected dorm location
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogWarning("User not associated with dorm location during holiday creation");
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
             // Validate dates
             if (dto.StartDate > dto.EndDate)
             {
@@ -46,14 +55,17 @@ namespace ASUDorms.Infrastructure.Services
                 throw new ArgumentException("Start date cannot be in the past");
             }
 
-            // Find student by NationalId
+            // Find student by NationalId - ADDED dorm location filter
             var student = await _unitOfWork.Students
                 .Query()
-                .FirstOrDefaultAsync(s => s.NationalId == dto.StudentNationalId && !s.IsDeleted);
+                .FirstOrDefaultAsync(s => s.NationalId == dto.StudentNationalId
+                    && s.DormLocationId == dormLocationId
+                    && !s.IsDeleted);
 
             if (student == null)
             {
-                _logger.LogWarning("Student not found: NationalIdHash={NationalIdHash}", nationalIdHash);
+                _logger.LogWarning("Student not found: NationalIdHash={NationalIdHash}, DormLocationId={DormLocationId}",
+                    nationalIdHash, dormLocationId);
                 throw new KeyNotFoundException($"Student with National ID '{dto.StudentNationalId}' not found or is deleted");
             }
 
@@ -94,13 +106,25 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task DeleteHolidayAsync(int holidayId)
         {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogWarning("User not associated with dorm location during holiday deletion");
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
             var holiday = await _unitOfWork.Holidays
                 .Query()
-                .FirstOrDefaultAsync(h => h.Id == holidayId && !h.IsDeleted);
+                .Include(h => h.Student)
+                .FirstOrDefaultAsync(h => h.Id == holidayId
+                    && h.Student.DormLocationId == dormLocationId
+                    && !h.IsDeleted);
 
             if (holiday == null)
             {
-                _logger.LogWarning("Holiday not found or already deleted: HolidayId={HolidayId}", holidayId);
+                _logger.LogWarning("Holiday not found or already deleted: HolidayId={HolidayId}, DormLocationId={DormLocationId}",
+                    holidayId, dormLocationId);
                 throw new KeyNotFoundException($"Active holiday with ID {holidayId} not found");
             }
 
@@ -117,14 +141,25 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId)
         {
-            // Find the student by StudentId
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogWarning("User not associated with dorm location during holiday retrieval");
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            // Find the student by StudentId - ADDED dorm location filter
             var student = await _unitOfWork.Students
                 .Query()
-                .FirstOrDefaultAsync(s => s.StudentId == studentId && !s.IsDeleted);
+                .FirstOrDefaultAsync(s => s.StudentId == studentId
+                    && s.DormLocationId == dormLocationId
+                    && !s.IsDeleted);
 
             if (student == null)
             {
-                _logger.LogWarning("Student not found: StudentId={StudentId}", studentId);
+                _logger.LogWarning("Student not found: StudentId={StudentId}, DormLocationId={DormLocationId}",
+                    studentId, dormLocationId);
                 throw new KeyNotFoundException($"Student with Student ID '{studentId}' not found");
             }
 
@@ -141,12 +176,122 @@ namespace ASUDorms.Infrastructure.Services
 
         public async Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId)
         {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogWarning("User not associated with dorm location during holiday retrieval");
+                throw new UnauthorizedAccessException("User is not associated with a dorm location");
+            }
+
+            // First verify student exists in current dorm
+            var student = await _unitOfWork.Students
+                .Query()
+                .FirstOrDefaultAsync(s => s.NationalId == nationalId
+                    && s.DormLocationId == dormLocationId
+                    && !s.IsDeleted);
+
+            if (student == null)
+            {
+                _logger.LogWarning("Student not found in dorm: NationalIdHash={NationalIdHash}, DormLocationId={DormLocationId}",
+                    HashString(nationalId), dormLocationId);
+                throw new KeyNotFoundException($"Student with National ID '{nationalId}' not found in this dorm");
+            }
+
             var holidays = await _unitOfWork.Holidays
                 .Query()
                 .Include(h => h.Student)
                 .Where(h => h.StudentNationalId == nationalId && !h.IsDeleted)
                 .OrderByDescending(h => h.StartDate)
                 .ToListAsync();
+
+            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
+        // ADDED: New method to get all holidays for current dorm
+        public async Task<List<HolidayDto>> GetAllHolidaysAsync()
+        {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogDebug("User not associated with dorm location, returning empty holiday list");
+                return new List<HolidayDto>();
+            }
+
+            _logger.LogDebug("Getting all holidays: DormLocationId={DormLocationId}", dormLocationId);
+
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.Student.DormLocationId == dormLocationId && !h.IsDeleted)
+                .OrderByDescending(h => h.StartDate)
+                .ToListAsync();
+
+            _logger.LogDebug("Retrieved {Count} holidays for dorm location {DormLocationId}",
+                holidays.Count, dormLocationId);
+
+            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
+        // ADDED: New method to get active holidays (current date)
+        public async Task<List<HolidayDto>> GetActiveHolidaysAsync()
+        {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+            var today = DateTime.Today;
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogDebug("User not associated with dorm location, returning empty holiday list");
+                return new List<HolidayDto>();
+            }
+
+            _logger.LogDebug("Getting active holidays: DormLocationId={DormLocationId}, Date={Date}",
+                dormLocationId, today.ToString("yyyy-MM-dd"));
+
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.Student.DormLocationId == dormLocationId
+                    && !h.IsDeleted
+                    && h.StartDate <= today
+                    && h.EndDate >= today)
+                .OrderByDescending(h => h.StartDate)
+                .ToListAsync();
+
+            _logger.LogDebug("Retrieved {Count} active holidays for dorm location {DormLocationId}",
+                holidays.Count, dormLocationId);
+
+            return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
+        // ADDED: New method to search holidays
+        public async Task<List<HolidayDto>> SearchHolidaysAsync(string searchTerm)
+        {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogDebug("User not associated with dorm location, returning empty holiday list");
+                return new List<HolidayDto>();
+            }
+
+            _logger.LogDebug("Searching holidays: SearchTerm={SearchTerm}, DormLocationId={DormLocationId}",
+                searchTerm, dormLocationId);
+
+            var holidays = await _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.Student.DormLocationId == dormLocationId
+                    && !h.IsDeleted
+                    && (h.StudentId.Contains(searchTerm)
+                        || h.StudentNationalId.Contains(searchTerm)
+                        || (h.Student.FirstName + " " + h.Student.LastName).Contains(searchTerm)))
+                .OrderByDescending(h => h.StartDate)
+                .ToListAsync();
+
+            _logger.LogDebug("Found {Count} holidays matching search term '{SearchTerm}'",
+                holidays.Count, searchTerm);
 
             return holidays.Select(h => MapToDto(h, h.Student)).ToList();
         }

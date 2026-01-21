@@ -37,7 +37,8 @@ namespace ASUDorms.Domain.Enums
     {
         MonthlyFee = 1,      // رسوم شهرية
         MissedMealPenalty = 2, // غرامة وجبات فائتة
-        Other = 3
+        LostReplacement=3,
+        Other = 4
     }
 }
 

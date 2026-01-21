@@ -100,7 +100,6 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"❌ Seeding failed: {ex.Message}");
     }
 }
-
 // Configure middleware pipeline
 if (app.Environment.IsDevelopment())
 {
@@ -108,10 +107,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// ===== FIXED ORDER =====
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseHttpsRedirection();
+
+// CORS MUST BE BEFORE UseHttpsRedirection and UseAuthentication
+app.UseCors("AllowReactApp");  // ← Move this UP!
+
+app.UseHttpsRedirection();     // This might be causing issues too
 app.UseStaticFiles();
-app.UseCors("AllowReactApp");      // ← CORS BEFORE Authentication
+
+// Remove your custom OPTIONS handler - CORS middleware handles it
+// app.Use(async (context, next) => ... );
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

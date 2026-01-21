@@ -119,10 +119,14 @@ namespace ASU_Dorms_Management_System.Extensions
                     policy.WithOrigins(
                             "http://localhost:3000",
                             "http://localhost:5173",
-                            "https://your-react-app.vercel.app") // Add production URL
+                            "https://localhost:5173",
+                            "https://localhost:7152",
+                            "http://localhost:5065")
                           .AllowAnyMethod()
-                          .AllowAnyHeader()
-                          .AllowCredentials();
+                          .AllowAnyHeader()  // This should allow X-Selected-Dorm-Id
+                          .AllowCredentials()
+                          .WithExposedHeaders("X-Selected-Dorm-Id", "selected-dorm-id", "DormId")
+                          .SetPreflightMaxAge(TimeSpan.FromHours(1));
                 });
             });
 
