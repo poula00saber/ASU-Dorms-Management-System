@@ -10,7 +10,7 @@ namespace ASU_Dorms_Management_System.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "Registration")]
+    [Authorize(Roles = "Registration,User")]
     public class PaymentExemptionsController : ControllerBase
     {
         private readonly IPaymentService _paymentService;
