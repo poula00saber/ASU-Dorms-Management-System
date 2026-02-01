@@ -110,23 +110,54 @@ namespace ASU_Dorms_Management_System.Extensions
             return services;
         }
 
-        public static IServiceCollection AddCorsPolicy(this IServiceCollection services)
+        public static IServiceCollection AddCorsPolicy(this IServiceCollection services, IConfiguration configuration)
         {
+            var cloudflareEnabled = configuration.GetValue<bool>("Cloudflare:Enabled");
+            var tunnelUrl = configuration.GetValue<string>("Cloudflare:TunnelUrl");
+
             services.AddCors(options =>
             {
                 options.AddPolicy("AllowReactApp", policy =>
                 {
-                    policy.WithOrigins(
-                            "http://localhost:3000",
-                            "http://localhost:5173",
-                            "https://localhost:5173",
-                            "https://localhost:7152",
-                            "http://localhost:5065")
-                          .AllowAnyMethod()
-                          .AllowAnyHeader()  // This should allow X-Selected-Dorm-Id
-                          .AllowCredentials()
-                          .WithExposedHeaders("X-Selected-Dorm-Id", "selected-dorm-id", "DormId")
-                          .SetPreflightMaxAge(TimeSpan.FromHours(1));
+                    // Use SetIsOriginAllowed for maximum flexibility with tunnels and local network
+                    policy.SetIsOriginAllowed(origin =>
+                    {
+                        // Allow all localhost variations
+                        if (origin.Contains("localhost") || origin.Contains("127.0.0.1"))
+                            return true;
+
+                        // Allow all Cloudflare tunnel domains
+                        if (origin.Contains(".trycloudflare.com") || origin.Contains(".cfargotunnel.com"))
+                            return true;
+
+                        // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+                        if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                        {
+                            var host = uri.Host;
+                            if (host.StartsWith("192.168.") || host.StartsWith("10.") || 
+                                (host.StartsWith("172.") && int.TryParse(host.Split('.')[1], out var second) && second >= 16 && second <= 31))
+                                return true;
+                        }
+
+                        // Allow configured tunnel URL
+                        if (cloudflareEnabled && !string.IsNullOrWhiteSpace(tunnelUrl) && 
+                            origin.TrimEnd('/').Equals(tunnelUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                            return true;
+
+                        Console.WriteLine($"[CORS] Blocked origin: {origin}");
+                        return false;
+                    })
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials()
+                    .WithExposedHeaders("X-Selected-Dorm-Id", "selected-dorm-id", "DormId", "Content-Type", "Authorization")
+                    .SetPreflightMaxAge(TimeSpan.FromHours(1));
+
+                    Console.WriteLine("[CORS] Policy configured with dynamic origin validation");
+                    if (cloudflareEnabled && !string.IsNullOrWhiteSpace(tunnelUrl))
+                    {
+                        Console.WriteLine($"[CORS] Cloudflare Tunnel URL: {tunnelUrl}");
+                    }
                 });
             });
 

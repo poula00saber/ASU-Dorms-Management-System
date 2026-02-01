@@ -1,8 +1,8 @@
-﻿
-using ASU_Dorms_Management_System.Extensions;
+﻿using ASU_Dorms_Management_System.Extensions;
 using ASU_Dorms_Management_System.Middleware;
 using ASUDorms.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +12,15 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddDatabaseContext(builder.Configuration);
+
+// Configure ForwardedHeaders for Cloudflare Tunnel
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.AllowedHosts.Clear();
+});
 
 // ===== IMPORTANT: Replace AddJwtAuthentication with this detailed version =====
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -82,7 +91,7 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddApplicationServices();
 builder.Services.AddSwaggerDocumentation();
-builder.Services.AddCorsPolicy();
+builder.Services.AddCorsPolicy(builder.Configuration);
 
 var app = builder.Build();
 
@@ -101,31 +110,44 @@ using (var scope = app.Services.CreateScope())
     }
 }
 // Configure middleware pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
-// ===== FIXED ORDER =====
+// IMPORTANT: ForwardedHeaders must be FIRST for Cloudflare tunnel
+app.UseForwardedHeaders();
+
+// Always enable Swagger for tunnel access
+app.UseSwagger();
+app.UseSwaggerUI();
+
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// CORS MUST BE BEFORE UseHttpsRedirection and UseAuthentication
-app.UseCors("AllowReactApp");  // ← Move this UP!
+// CORS MUST BE FIRST - before anything else that handles requests
+app.UseCors("AllowReactApp");
 
-app.UseHttpsRedirection();     // This might be causing issues too
+// REMOVE or COMMENT OUT HttpsRedirection - Cloudflare handles HTTPS
+// This causes "Failed to fetch" when React calls HTTP and gets redirected
+// app.UseHttpsRedirection();
+
 app.UseStaticFiles();
-
-// Remove your custom OPTIONS handler - CORS middleware handles it
-// app.Use(async (context, next) => ... );
 
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-Console.WriteLine("🚀 Application started successfully");
-Console.WriteLine($"📍 Environment: {app.Environment.EnvironmentName}");
-Console.WriteLine($"🔒 JWT Issuer: {builder.Configuration["Jwt:Issuer"]}");
-Console.WriteLine($"🔒 JWT Audience: {builder.Configuration["Jwt:Audience"]}");
+// Startup logging with Cloudflare info
+var cloudflareEnabled = builder.Configuration.GetValue<bool>("Cloudflare:Enabled");
+var tunnelUrl = builder.Configuration.GetValue<string>("Cloudflare:TunnelUrl");
+
+Console.WriteLine("");
+Console.WriteLine("==========================================");
+Console.WriteLine("  ASU Dorms Management System API");
+Console.WriteLine("==========================================");
+Console.WriteLine($"  Environment: {app.Environment.EnvironmentName}");
+Console.WriteLine($"  JWT Issuer:  {builder.Configuration["Jwt:Issuer"]}");
+if (cloudflareEnabled && !string.IsNullOrEmpty(tunnelUrl))
+{
+    Console.WriteLine($"  Cloudflare:  {tunnelUrl}");
+}
+Console.WriteLine("==========================================");
+Console.WriteLine("");
 
 app.Run();
