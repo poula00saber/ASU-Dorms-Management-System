@@ -149,7 +149,8 @@ namespace ASU_Dorms_Management_System.Extensions
                     })
                     .AllowAnyMethod()
                     .AllowAnyHeader()
-                    .AllowCredentials()
+                    // Don't use AllowCredentials with tunnels - causes CORS issues
+                    // .AllowCredentials()
                     .WithExposedHeaders("X-Selected-Dorm-Id", "selected-dorm-id", "DormId", "Content-Type", "Authorization")
                     .SetPreflightMaxAge(TimeSpan.FromHours(1));
 
