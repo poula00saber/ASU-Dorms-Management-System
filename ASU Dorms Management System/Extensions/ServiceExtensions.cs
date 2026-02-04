@@ -17,12 +17,53 @@ namespace ASU_Dorms_Management_System.Extensions
             this IServiceCollection services,
             IConfiguration configuration)
         {
+            // Get connection string - support Railway's DATABASE_URL format
+            var connectionString = configuration.GetConnectionString("DefaultConnection");
+            
+            // Railway provides DATABASE_URL as environment variable
+            var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+            if (!string.IsNullOrEmpty(databaseUrl))
+            {
+                connectionString = ConvertRailwayUrlToNpgsql(databaseUrl);
+                Console.WriteLine("[DB] Using Railway DATABASE_URL");
+            }
+            else
+            {
+                Console.WriteLine("[DB] Using appsettings connection string");
+            }
+
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlServer(
-                    configuration.GetConnectionString("DefaultConnection"),
+                options.UseNpgsql(
+                    connectionString,
                     b => b.MigrationsAssembly("ASUDorms.Infrastructure")));
 
             return services;
+        }
+
+        /// <summary>
+        /// Converts Railway's postgres:// URL to Npgsql connection string format
+        /// Railway format: postgres://user:password@host:port/database
+        /// Npgsql format: Host=host;Port=port;Database=database;Username=user;Password=password
+        /// </summary>
+        private static string ConvertRailwayUrlToNpgsql(string databaseUrl)
+        {
+            try
+            {
+                var uri = new Uri(databaseUrl);
+                var userInfo = uri.UserInfo.Split(':');
+                var username = userInfo[0];
+                var password = userInfo.Length > 1 ? userInfo[1] : "";
+                var host = uri.Host;
+                var port = uri.Port > 0 ? uri.Port : 5432;
+                var database = uri.AbsolutePath.TrimStart('/');
+
+                return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Error parsing DATABASE_URL: {ex.Message}");
+                return databaseUrl; // Return as-is if parsing fails
+            }
         }
 
         public static IServiceCollection AddJwtAuthentication(
@@ -119,7 +160,7 @@ namespace ASU_Dorms_Management_System.Extensions
             {
                 options.AddPolicy("AllowReactApp", policy =>
                 {
-                    // Use SetIsOriginAllowed for maximum flexibility with tunnels and local network
+                    // Use SetIsOriginAllowed for maximum flexibility with tunnels, Railway, and Vercel
                     policy.SetIsOriginAllowed(origin =>
                     {
                         // Allow all localhost variations
@@ -128,6 +169,14 @@ namespace ASU_Dorms_Management_System.Extensions
 
                         // Allow all Cloudflare tunnel domains
                         if (origin.Contains(".trycloudflare.com") || origin.Contains(".cfargotunnel.com"))
+                            return true;
+
+                        // Allow Vercel deployments (production frontend)
+                        if (origin.Contains(".vercel.app") || origin.Contains("vercel.app"))
+                            return true;
+
+                        // Allow Railway deployments
+                        if (origin.Contains(".railway.app") || origin.Contains("railway.app"))
                             return true;
 
                         // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
@@ -149,16 +198,10 @@ namespace ASU_Dorms_Management_System.Extensions
                     })
                     .AllowAnyMethod()
                     .AllowAnyHeader()
-                    // Don't use AllowCredentials with tunnels - causes CORS issues
-                    // .AllowCredentials()
                     .WithExposedHeaders("X-Selected-Dorm-Id", "selected-dorm-id", "DormId", "Content-Type", "Authorization")
                     .SetPreflightMaxAge(TimeSpan.FromHours(1));
 
-                    Console.WriteLine("[CORS] Policy configured with dynamic origin validation");
-                    if (cloudflareEnabled && !string.IsNullOrWhiteSpace(tunnelUrl))
-                    {
-                        Console.WriteLine($"[CORS] Cloudflare Tunnel URL: {tunnelUrl}");
-                    }
+                    Console.WriteLine("[CORS] Policy configured - allowing Vercel, Railway, localhost, and tunnels");
                 });
             });
 

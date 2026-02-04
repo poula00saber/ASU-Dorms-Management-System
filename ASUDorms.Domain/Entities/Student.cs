@@ -1,4 +1,4 @@
-﻿using ASUDorms.Domain.Enums;
+using ASUDorms.Domain.Enums;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -49,7 +49,7 @@ namespace ASUDorms.Domain.Entities
         public Religion Religion { get; set; }
 
         [MaxLength(500)]
-        public string PhotoUrl { get; set; }
+        public string? PhotoUrl { get; set; }
 
         // Address Information
         [Required]
@@ -74,7 +74,7 @@ namespace ASUDorms.Domain.Entities
 
         [Required]
         [MaxLength(20)]
-        public string Grade { get; set; } // University grade (e.g., "جيد", "جيد جدا")
+        public string Grade { get; set; } // University grade (e.g., "???", "??? ???")
 
         [Range(0, 100)]
         public decimal? PercentageGrade { get; set; } // Percentage (e.g., 85.5%)
@@ -154,3 +154,4 @@ namespace ASUDorms.Domain.Entities
         public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; }
     }
 }
+

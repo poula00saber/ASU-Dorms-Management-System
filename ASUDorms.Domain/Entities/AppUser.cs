@@ -1,4 +1,4 @@
-﻿// ASUDorms.Domain/Entities/AppUser.cs
+// ASUDorms.Domain/Entities/AppUser.cs
 using ASUDorms.Domain.Enums;
 using System;
 using System.Collections.Generic;
@@ -30,7 +30,7 @@ namespace ASUDorms.Domain.Entities
 
         // NEW: JSON array string like "[2,3,4,5,6,7]"
         [MaxLength(500)]
-        public string AccessibleDormLocationIds { get; set; }
+        public string AccessibleDormLocationIds { get; set; } = "[]";
 
         public bool IsActive { get; set; } = true;
 
