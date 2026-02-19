@@ -1,4 +1,5 @@
-﻿using ASUDorms.Application.DTOs.Payments;
+﻿using ASUDorms.Application.DTOs.Common;
+using ASUDorms.Application.DTOs.Payments;
 using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Enums;
@@ -603,6 +604,87 @@ namespace ASUDorms.Infrastructure.Services
                 nationalIdHash, date.ToString("yyyy-MM-dd"), isValid);
 
             return isValid;
+        }
+
+        // ADDED: Paginated get all payment transactions
+        public async Task<PagedResult<PaymentTransactionDto>> GetPaymentTransactionsPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterStudentId = null)
+        {
+            var dormLocationId = _authService.GetSelectedDormLocationId();
+
+            // Validate page size
+            if (pageSize > 100) pageSize = 100;
+            if (pageSize < 1) pageSize = 10;
+
+            _logger.LogDebug("Getting paginated payment transactions: DormLocationId={DormLocationId}, Page={Page}, PageSize={PageSize}",
+                dormLocationId, pageNumber, pageSize);
+
+            var query = _unitOfWork.PaymentTransactions
+                .Query()
+                .Include(p => p.Student)
+                .Where(p => p.DormLocationId == dormLocationId);
+
+            // Apply search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query = query.Where(p =>
+                    p.StudentId.Contains(search)
+                    || p.StudentNationalId.Contains(search)
+                    || (p.Student.FirstName + " " + p.Student.LastName).Contains(search));
+            }
+
+            // Apply student ID filter
+            if (!string.IsNullOrWhiteSpace(filterStudentId))
+            {
+                query = query.Where(p => p.StudentId == filterStudentId);
+            }
+
+            // Get total count
+            var totalCount = await query.CountAsync();
+
+            // Apply pagination
+            var transactions = await query
+                .OrderByDescending(p => p.PaymentDate)
+                .ThenByDescending(p => p.CreatedAt)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var transactionDtos = transactions.Select(p => MapToPaymentTransactionDto(p, p.Student)).ToList();
+
+            return new PagedResult<PaymentTransactionDto>(transactionDtos, totalCount, pageNumber, pageSize);
+        }
+
+        // ADDED: Paginated get payment transactions for specific student
+        public async Task<PagedResult<PaymentTransactionDto>> GetStudentPaymentTransactionsPagedAsync(string studentId, int pageNumber, int pageSize)
+        {
+            var dormLocationId = _authService.GetSelectedDormLocationId();
+
+            // Validate page size
+            if (pageSize > 100) pageSize = 100;
+            if (pageSize < 1) pageSize = 10;
+
+            _logger.LogDebug("Getting paginated student payment transactions: StudentId={StudentId}, DormLocationId={DormLocationId}, Page={Page}, PageSize={PageSize}",
+                studentId, dormLocationId, pageNumber, pageSize);
+
+            var query = _unitOfWork.PaymentTransactions
+                .Query()
+                .Include(p => p.Student)
+                .Where(p => p.DormLocationId == dormLocationId && p.StudentId == studentId);
+
+            // Get total count
+            var totalCount = await query.CountAsync();
+
+            // Apply pagination
+            var transactions = await query
+                .OrderByDescending(p => p.PaymentDate)
+                .ThenByDescending(p => p.CreatedAt)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var transactionDtos = transactions.Select(p => MapToPaymentTransactionDto(p, p.Student)).ToList();
+
+            return new PagedResult<PaymentTransactionDto>(transactionDtos, totalCount, pageNumber, pageSize);
         }
 
         // Helper Methods

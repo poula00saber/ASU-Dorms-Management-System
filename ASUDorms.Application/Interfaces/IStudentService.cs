@@ -1,4 +1,5 @@
-﻿using ASUDorms.Application.DTOs.Students;
+﻿using ASUDorms.Application.DTOs.Common;
+using ASUDorms.Application.DTOs.Students;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,7 @@ namespace ASUDorms.Application.Interfaces
         Task<StudentDto> UpdateStudentAsync(string studentId, CreateStudentDto dto);
         Task<StudentDto> GetStudentByIdAsync(string studentId);
         Task<List<StudentDto>> GetAllStudentsAsync();
+        Task<PagedResult<StudentDto>> GetStudentsPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterBuilding = null, string? filterFaculty = null);
         Task DeleteStudentAsync(string studentId);
         Task<string> UploadPhotoAsync(IFormFile file, string studentId);
         Task<List<StudentDto>> GetStudentsByDormLocationAsync(int dormLocationId);

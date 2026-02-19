@@ -1,4 +1,5 @@
-﻿using ASUDorms.Application.DTOs.Payments;
+﻿using ASUDorms.Application.DTOs.Common;
+using ASUDorms.Application.DTOs.Payments;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,5 +32,9 @@ namespace ASUDorms.Application.Interfaces
 
         // Validation
         Task<bool> IsPaymentExemptionValidAsync(string studentNationalId, DateTime date);
+
+        // PAGINATION METHODS:
+        Task<PagedResult<PaymentTransactionDto>> GetPaymentTransactionsPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterStudentId = null);
+        Task<PagedResult<PaymentTransactionDto>> GetStudentPaymentTransactionsPagedAsync(string studentId, int pageNumber, int pageSize);
     }
 }

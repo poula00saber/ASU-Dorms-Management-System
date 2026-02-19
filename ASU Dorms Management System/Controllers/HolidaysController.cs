@@ -113,6 +113,71 @@ namespace ASU_Dorms_Management_System.Controllers
             }
         }
 
+        [HttpGet("paged")]
+        public async Task<IActionResult> GetPaged(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string? studentId = null)
+        {
+            _logger.LogDebug("Getting paginated holidays: Page={Page}, PageSize={PageSize}",
+                page?.ToString() ?? "null", pageSize?.ToString() ?? "null");
+
+            try
+            {
+                var pageNum = page ?? 1;
+                if (pageNum < 1) pageNum = 1;
+
+                var size = pageSize ?? 10;
+                if (size < 1) size = 10;
+                if (size > 100) size = 100;
+
+                var pagedResult = await _holidayService.GetHolidaysPagedAsync(pageNum, size, search, studentId);
+
+                _logger.LogDebug("Returned page {Page} with {Count}/{Total} holidays",
+                    pageNum, pagedResult.Items.Count, pagedResult.TotalCount);
+
+                return Ok(pagedResult);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching paginated holidays");
+                return StatusCode(500, new { message = "An error occurred while fetching holidays", error = ex.Message });
+            }
+        }
+
+        [HttpGet("student/{studentId}/paged")]
+        public async Task<IActionResult> GetByStudentIdPaged(
+            string studentId,
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null)
+        {
+            _logger.LogDebug("Getting paginated holidays for student: StudentId={StudentId}, Page={Page}, PageSize={PageSize}",
+                studentId, page?.ToString() ?? "null", pageSize?.ToString() ?? "null");
+
+            try
+            {
+                var pageNum = page ?? 1;
+                if (pageNum < 1) pageNum = 1;
+
+                var size = pageSize ?? 10;
+                if (size < 1) size = 10;
+                if (size > 100) size = 100;
+
+                var pagedResult = await _holidayService.GetStudentHolidaysPagedAsync(studentId, pageNum, size);
+
+                _logger.LogDebug("Returned page {Page} with {Count}/{Total} holidays for student {StudentId}",
+                    pageNum, pagedResult.Items.Count, pagedResult.TotalCount, studentId);
+
+                return Ok(pagedResult);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching paginated holidays for student: StudentId={StudentId}", studentId);
+                return StatusCode(500, new { message = "An error occurred while fetching holidays", error = ex.Message });
+            }
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {

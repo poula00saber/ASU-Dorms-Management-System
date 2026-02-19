@@ -1,4 +1,5 @@
-﻿    using ASUDorms.Application.DTOs.Students;
+﻿    using ASUDorms.Application.DTOs.Common;
+    using ASUDorms.Application.DTOs.Students;
     using ASUDorms.Application.Interfaces;
     using ASUDorms.Domain.Entities;
     using ASUDorms.Domain.Enums;
@@ -299,6 +300,63 @@
                     students.Count, dormLocationId);
 
                 return students.Select(MapToDto).ToList();
+            }
+
+            public async Task<PagedResult<StudentDto>> GetStudentsPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterBuilding = null, string? filterFaculty = null)
+            {
+                var dormLocationId = _authService.GetDormIdFromHeaderOrToken();
+
+                if (dormLocationId == 0)
+                {
+                    _logger.LogWarning("No valid dorm location for paged query");
+                    return new PagedResult<StudentDto>([], 0, pageNumber, pageSize);
+                }
+
+                var query = _unitOfWork.Students
+                    .Query()
+                    .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
+                    .Include(s => s.DormLocation)
+                    .AsQueryable();
+
+                // Apply search filter
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var searchLower = search.ToLower();
+                    query = query.Where(s =>
+                        s.StudentId.ToLower().Contains(searchLower) ||
+                        s.FirstName.ToLower().Contains(searchLower) ||
+                        s.LastName.ToLower().Contains(searchLower) ||
+                        s.NationalId.Contains(search) ||
+                        (s.Email != null && s.Email.ToLower().Contains(searchLower)));
+                }
+
+                // Apply building filter
+                if (!string.IsNullOrWhiteSpace(filterBuilding))
+                {
+                    query = query.Where(s => s.BuildingNumber == filterBuilding);
+                }
+
+                // Apply faculty filter
+                if (!string.IsNullOrWhiteSpace(filterFaculty))
+                {
+                    query = query.Where(s => s.Faculty == filterFaculty);
+                }
+
+                var totalCount = await query.CountAsync();
+
+                var students = await query
+                    .OrderBy(s => s.FirstName)
+                    .ThenBy(s => s.LastName)
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                var items = students.Select(MapToDto).ToList();
+
+                _logger.LogDebug("Paged query: Page={Page}, Size={Size}, Total={Total}, Returned={Count}",
+                    pageNumber, pageSize, totalCount, items.Count);
+
+                return new PagedResult<StudentDto>(items, totalCount, pageNumber, pageSize);
             }
 
             public async Task<List<StudentDto>> SearchStudentsAsync(string searchTerm)

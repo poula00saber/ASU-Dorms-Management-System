@@ -1,4 +1,5 @@
-﻿using ASUDorms.Application.DTOs.Holidays;
+﻿using ASUDorms.Application.DTOs.Common;
+using ASUDorms.Application.DTOs.Holidays;
 using ASUDorms.Application.Interfaces;
 using ASUDorms.Domain.Entities;
 using ASUDorms.Domain.Interfaces;
@@ -294,6 +295,99 @@ namespace ASUDorms.Infrastructure.Services
                 holidays.Count, searchTerm);
 
             return holidays.Select(h => MapToDto(h, h.Student)).ToList();
+        }
+
+        // ADDED: Paginated get all holidays for current dorm
+        public async Task<PagedResult<HolidayDto>> GetHolidaysPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterStudentId = null)
+        {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogDebug("User not associated with dorm location, returning empty paged result");
+                return new PagedResult<HolidayDto>(new List<HolidayDto>(), 0, pageNumber, pageSize);
+            }
+
+            // Validate page size
+            if (pageSize > 100) pageSize = 100;
+            if (pageSize < 1) pageSize = 10;
+
+            _logger.LogDebug("Getting paginated holidays: DormLocationId={DormLocationId}, Page={Page}, PageSize={PageSize}",
+                dormLocationId, pageNumber, pageSize);
+
+            var query = _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.Student.DormLocationId == dormLocationId && !h.IsDeleted);
+
+            // Apply search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query = query.Where(h => 
+                    h.StudentId.Contains(search)
+                    || h.StudentNationalId.Contains(search)
+                    || (h.Student.FirstName + " " + h.Student.LastName).Contains(search));
+            }
+
+            // Apply student ID filter
+            if (!string.IsNullOrWhiteSpace(filterStudentId))
+            {
+                query = query.Where(h => h.StudentId == filterStudentId);
+            }
+
+            // Get total count
+            var totalCount = await query.CountAsync();
+
+            // Apply pagination
+            var holidays = await query
+                .OrderByDescending(h => h.StartDate)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var holidayDtos = holidays.Select(h => MapToDto(h, h.Student)).ToList();
+
+            return new PagedResult<HolidayDto>(holidayDtos, totalCount, pageNumber, pageSize);
+        }
+
+        // ADDED: Paginated get holidays for specific student
+        public async Task<PagedResult<HolidayDto>> GetStudentHolidaysPagedAsync(string studentId, int pageNumber, int pageSize)
+        {
+            var dormLocationId = await _authService.GetSelectedDormLocationIdAsync();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogDebug("User not associated with dorm location, returning empty paged result");
+                return new PagedResult<HolidayDto>(new List<HolidayDto>(), 0, pageNumber, pageSize);
+            }
+
+            // Validate page size
+            if (pageSize > 100) pageSize = 100;
+            if (pageSize < 1) pageSize = 10;
+
+            _logger.LogDebug("Getting paginated student holidays: StudentId={StudentId}, DormLocationId={DormLocationId}, Page={Page}, PageSize={PageSize}",
+                studentId, dormLocationId, pageNumber, pageSize);
+
+            var query = _unitOfWork.Holidays
+                .Query()
+                .Include(h => h.Student)
+                .Where(h => h.Student.DormLocationId == dormLocationId
+                    && h.StudentId == studentId
+                    && !h.IsDeleted);
+
+            // Get total count
+            var totalCount = await query.CountAsync();
+
+            // Apply pagination
+            var holidays = await query
+                .OrderByDescending(h => h.StartDate)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var holidayDtos = holidays.Select(h => MapToDto(h, h.Student)).ToList();
+
+            return new PagedResult<HolidayDto>(holidayDtos, totalCount, pageNumber, pageSize);
         }
 
         private HolidayDto MapToDto(Holiday holiday, Student student = null)

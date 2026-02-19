@@ -109,21 +109,38 @@ namespace ASUDorms.WebAPI.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string? building = null,
+            [FromQuery] string? faculty = null)
         {
-            _logger.LogDebug("Getting all students");
-
             try
             {
+                // If page is specified, return paginated results
+                if (page.HasValue)
+                {
+                    var pageNum = page.Value < 1 ? 1 : page.Value;
+                    var size = pageSize.HasValue && pageSize.Value > 0 ? pageSize.Value : 10;
+                    if (size > 100) size = 100;
+
+                    var pagedResult = await _studentService.GetStudentsPagedAsync(pageNum, size, search, building, faculty);
+
+                    _logger.LogDebug("Returned page {Page} with {Count}/{Total} students",
+                        pageNum, pagedResult.Items.Count, pagedResult.TotalCount);
+
+                    return Ok(pagedResult);
+                }
+
+                // Otherwise return all (backward compatible)
                 var students = await _studentService.GetAllStudentsAsync();
-
-                _logger.LogDebug("Returned {Count} students", students.Count);
-
+                _logger.LogDebug("Returned {Count} students (unpaged)", students.Count);
                 return Ok(students);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting all students");
+                _logger.LogError(ex, "Error getting students");
                 return StatusCode(500, new { message = ex.Message });
             }
         }

@@ -1,4 +1,5 @@
-﻿using ASUDorms.Application.DTOs.Holidays;
+﻿using ASUDorms.Application.DTOs.Common;
+using ASUDorms.Application.DTOs.Holidays;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,10 +14,10 @@ namespace ASUDorms.Application.Interfaces
         Task DeleteHolidayAsync(int holidayId);
         Task<List<HolidayDto>> GetHolidaysByStudentIdAsync(string studentId);
         Task<List<HolidayDto>> GetHolidaysByNationalIdAsync(string nationalId);
-
-        // NEW METHODS:
         Task<List<HolidayDto>> GetAllHolidaysAsync();
         Task<List<HolidayDto>> GetActiveHolidaysAsync();
         Task<List<HolidayDto>> SearchHolidaysAsync(string searchTerm);
+        Task<PagedResult<HolidayDto>> GetHolidaysPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterStudentId = null);
+        Task<PagedResult<HolidayDto>> GetStudentHolidaysPagedAsync(string studentId, int pageNumber, int pageSize);
     }
 }
