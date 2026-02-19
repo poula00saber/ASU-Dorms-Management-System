@@ -799,5 +799,159 @@ namespace ASUDorms.Infrastructure.Services
             var bytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
             return Convert.ToBase64String(bytes)[..8];
         }
+
+        // BULK MONTHLY FEES METHODS
+
+        public async Task<List<DormTypeAvailableDto>> GetAvailableDormTypesForBulkFeesAsync()
+        {
+            var dormLocationId = _authService.GetDormIdFromHeaderOrToken();
+
+            if (dormLocationId == 0)
+            {
+                _logger.LogWarning("No valid dorm location for bulk fees query");
+                return new List<DormTypeAvailableDto>();
+            }
+
+            _logger.LogInformation("Getting available dorm types for bulk fees: DormLocationId={DormLocationId}", dormLocationId);
+
+            // Get all dorm types used in the current dorm location
+            var dormTypeCounts = await _unitOfWork.Students
+                .Query()
+                .Where(s => s.DormLocationId == dormLocationId && !s.IsDeleted)
+                .GroupBy(s => s.DormType)
+                .Select(g => new
+                {
+                    DormType = g.Key,
+                    TotalCount = g.Count(),
+                    NonExemptCount = g.Count(s => !s.IsExemptFromFees)
+                })
+                .ToListAsync();
+
+            var result = dormTypeCounts.Select(x => new DormTypeAvailableDto
+            {
+                DormTypeId = (int)x.DormType,
+                DormTypeName = GetDormTypeName(x.DormType),
+                StudentCount = x.TotalCount,
+                NonExemptCount = x.NonExemptCount
+            }).OrderBy(d => d.DormTypeId).ToList();
+
+            _logger.LogInformation("Found {Count} dorm types for bulk fees in dorm location {DormLocationId}",
+                result.Count, dormLocationId);
+
+            return result;
+        }
+
+        public async Task<BulkFeesResultDto> BulkAddMonthlyFeesAsync(BulkMonthlyFeesDto dto)
+        {
+            var dormLocationId = _authService.GetDormIdFromHeaderOrToken();
+
+            if (dormLocationId == 0)
+            {
+                throw new UnauthorizedAccessException("المستخدم غير مرتبط برقم دار");
+            }
+
+            if (dto.DormTypeAmounts == null || dto.DormTypeAmounts.Count == 0)
+            {
+                throw new ArgumentException("يجب تحديد المبالغ لنوع سكن واحد على الأقل");
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.Month))
+            {
+                throw new ArgumentException("الشهر مطلوب");
+            }
+
+            _logger.LogInformation("Starting bulk monthly fees: DormLocationId={DormLocationId}, Month={Month}, DormTypes={DormTypeCount}",
+                dormLocationId, dto.Month, dto.DormTypeAmounts.Count);
+
+            var result = new BulkFeesResultDto { Success = false };
+            int totalProcessed = 0;
+            decimal totalAmountAdded = 0;
+
+            try
+            {
+                // Get all non-exempt students for each dorm type in this dorm location
+                var students = await _unitOfWork.Students
+                    .Query()
+                    .Where(s => s.DormLocationId == dormLocationId 
+                        && !s.IsDeleted 
+                        && !s.IsExemptFromFees)
+                    .ToListAsync();
+
+                // Group students by dorm type
+                var studentsByDormType = students.GroupBy(s => s.DormType).ToList();
+
+                foreach (var groupedStudents in studentsByDormType)
+                {
+                    int dormTypeId = (int)groupedStudents.Key;
+                    
+                    // Check if this dorm type has a fee amount specified
+                    if (!dto.DormTypeAmounts.ContainsKey(dormTypeId))
+                    {
+                        _logger.LogDebug("No fee amount specified for dorm type {DormType}, skipping", dormTypeId);
+                        continue;
+                    }
+
+                    decimal feeAmount = dto.DormTypeAmounts[dormTypeId];
+
+                    if (feeAmount <= 0)
+                    {
+                        _logger.LogWarning("Invalid fee amount for dorm type {DormType}: {Amount}", dormTypeId, feeAmount);
+                        continue;
+                    }
+
+                    // Add fees to each student
+                    foreach (var student in groupedStudents)
+                    {
+                        // Update outstanding amount
+                        student.OutstandingAmount += feeAmount;
+                        student.HasOutstandingPayment = true;
+
+                        _unitOfWork.Students.Update(student);
+                        totalProcessed++;
+                        totalAmountAdded += feeAmount;
+                    }
+
+                    if (!result.ProcessedByDormType.ContainsKey(dormTypeId))
+                    {
+                        result.ProcessedByDormType[dormTypeId] = 0;
+                    }
+                    result.ProcessedByDormType[dormTypeId] += groupedStudents.Count();
+
+                    _logger.LogInformation("Added fee {Amount} to {Count} students in dorm type {DormType}",
+                        feeAmount, groupedStudents.Count(), dormTypeId);
+                }
+
+                // Save all changes
+                await _unitOfWork.SaveChangesAsync();
+
+                result.Success = true;
+                result.TotalStudentsProcessed = totalProcessed;
+                result.TotalAmountAdded = totalAmountAdded;
+                result.Message = $"تم إضافة الرسوم بنجاح لـ {totalProcessed} طالب بإجمالي {totalAmountAdded:F2}";
+
+                _logger.LogInformation("Bulk monthly fees completed: Total={Total}, Amount={Amount}",
+                    totalProcessed, totalAmountAdded);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during bulk monthly fees: DormLocationId={DormLocationId}", dormLocationId);
+                result.Success = false;
+                result.Message = $"خطأ: {ex.Message}";
+                return result;
+            }
+        }
+
+        private string GetDormTypeName(DormType dormType)
+        {
+            return dormType switch
+            {
+                DormType.Regular => "عادي",
+                DormType.Premium => "مميز",
+                DormType.Hotel => "فندقي",
+                _ => dormType.ToString()
+            };
+        }
     }
 }

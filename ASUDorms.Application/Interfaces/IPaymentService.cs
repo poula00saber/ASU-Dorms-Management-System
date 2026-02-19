@@ -36,5 +36,9 @@ namespace ASUDorms.Application.Interfaces
         // PAGINATION METHODS:
         Task<PagedResult<PaymentTransactionDto>> GetPaymentTransactionsPagedAsync(int pageNumber, int pageSize, string? search = null, string? filterStudentId = null);
         Task<PagedResult<PaymentTransactionDto>> GetStudentPaymentTransactionsPagedAsync(string studentId, int pageNumber, int pageSize);
+
+        // BULK MONTHLY FEES:
+        Task<List<DormTypeAvailableDto>> GetAvailableDormTypesForBulkFeesAsync();
+        Task<BulkFeesResultDto> BulkAddMonthlyFeesAsync(BulkMonthlyFeesDto dto);
     }
 }

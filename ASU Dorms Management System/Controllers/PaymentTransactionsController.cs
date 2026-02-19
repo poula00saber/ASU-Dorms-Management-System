@@ -257,6 +257,68 @@ namespace ASU_Dorms_Management_System.Controllers
             }
         }
 
+        // BULK MONTHLY FEES ENDPOINTS
+
+        [HttpGet("bulk/available-dorm-types")]
+        [Authorize(Roles = "Registration")]
+        public async Task<IActionResult> GetAvailableDormTypesForBulkFees()
+        {
+            _logger.LogInformation("Getting available dorm types for bulk fees");
+
+            try
+            {
+                var dormTypes = await _paymentService.GetAvailableDormTypesForBulkFeesAsync();
+
+                _logger.LogInformation("Returned {Count} dorm types for bulk fees", dormTypes.Count);
+                return Ok(dormTypes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting dorm types for bulk fees");
+                return StatusCode(500, new { message = "خطأ في الحصول على أنواع السكن", error = ex.Message });
+            }
+        }
+
+        [HttpPost("bulk/add-monthly-fees")]
+        [Authorize(Roles = "Registration")]
+        public async Task<IActionResult> BulkAddMonthlyFees([FromBody] BulkMonthlyFeesDto dto)
+        {
+            _logger.LogInformation("Adding bulk monthly fees: Month={Month}, DormTypes={DormTypeCount}",
+                dto.Month, dto.DormTypeAmounts.Count);
+
+            try
+            {
+                var result = await _paymentService.BulkAddMonthlyFeesAsync(dto);
+
+                if (result.Success)
+                {
+                    _logger.LogInformation("Bulk monthly fees added successfully: Total={Total}, Amount={Amount}",
+                        result.TotalStudentsProcessed, result.TotalAmountAdded);
+                    return Ok(result);
+                }
+                else
+                {
+                    _logger.LogWarning("Bulk monthly fees partially failed: {Message}", result.Message);
+                    return BadRequest(result);
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning("Invalid bulk fees request: {Message}", ex.Message);
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning("Unauthorized bulk fees request: {Message}", ex.Message);
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adding bulk monthly fees");
+                return StatusCode(500, new { message = "خطأ في إضافة الرسوم", error = ex.Message });
+            }
+        }
+
         private string HashString(string input)
         {
             if (string.IsNullOrEmpty(input)) return "null";
